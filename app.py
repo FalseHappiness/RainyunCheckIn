@@ -155,7 +155,7 @@ def check_auth_file():
 
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.2.0
+雨云自动签到程序 v1.3.0
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
@@ -202,9 +202,10 @@ check_auth_file()
 command = args.command
 
 if command == 'check_in':
+    import main
+
     auto = args.auto
     print(f"执行{'自动' if auto else '手动'}签到")
-    import main
 
     if args.force:
         print('跳过签到状态检测')
@@ -231,7 +232,7 @@ if command == 'check_in':
         captcha = None
         while True:
             try:
-                text = f"请打开 {Path(base_path) / 'captcha.html'} 完成验证码，并输入显示的base64验证码: " if captcha is None else "验证码错误，请重新输入: "
+                text = f"请打开 {Path(base_path) / 'captcha.html'} 完成验证码，并输入显示的 Base64 验证码: " if captcha is None else "验证码错误，请重新输入: "
                 captcha = json.loads(base64.b64decode(input(text)))
                 if captcha.get('randstr') or captcha.get('ticket'):
                     break

@@ -1,4 +1,4 @@
-# Rainyun Check-In
+# Rainyun Auto Check-In
 
 一个自动签到雨云的 Python 脚本，支持命令行和网页界面操作。
 
@@ -185,7 +185,7 @@ python app.py status
 - `main.py` - 主要逻辑实现
 - `app.py` - 程序入口和命令行接口
 - `web.py` - 网页支持功能
-- `ocr.py` - 验证码识别模块（经过简单测试“正确率: 82.50% (165/200)”，多次尝试可确保验证成功）
+- `ICR.py` - 交互式验证码识别（Interactive CAPTCHA Recognition）模块（经过简单测试“正确率: 94.00% (188/200)”，多次尝试可确保验证成功）
 - `utils.py` - 实用工具
 - `index.html` - 网页主页面
 - `captcha.html` - 签到页面

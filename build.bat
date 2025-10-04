@@ -8,6 +8,7 @@ set PLAYWRIGHT_BROWSERS_PATH=./playwright
 
 python -m nuitka --standalone ^
                  --follow-imports ^
+                 --nofollow-import-to="matplotlib" ^
                  --python-flag="-S" ^
                  --mingw64 ^
                  --main="app.py" ^
@@ -21,11 +22,13 @@ python -m nuitka --standalone ^
                  --output-filename="RainyunAutoCheckIn.exe" ^
                  --company-name="FalseHappiness" ^
                  --product-name="RainyunAutoCheckIn" ^
-                 --file-version="1.2.0" ^
-                 --product-version="1.2.0" ^
+                 --file-version="1.3.0" ^
+                 --product-version="1.3.0" ^
                  --file-description="雨云自动签到程序 https://github.com/FalseHappiness/RainyunCheckIn" ^
                  --copyright="Copyright © 2025 FalseHappiness" ^
                  --enable-plugin=no-qt ^
+                 --enable-plugins="upx" ^
+                 --upx-binary="./upx-5.0.2-win64" ^
                  --windows-console-mode="force"
 
 echo.

@@ -1,12 +1,16 @@
 import os
+import threading
+import time
+from queue import Queue
 
-import matplotlib.pyplot as plt
 import requests
+
 from playwright.sync_api import sync_playwright, Position
 
 import main
-import ocr
-import time
+
+from ICR import find_part_positions, display_match_comparisons, main as icr_main, convert_matches_to_positions, \
+    load_image
 
 
 # noinspection PyMethodMayBeStatic
@@ -28,35 +32,9 @@ class CaptchaTester:
         except Exception as e:
             raise Exception(f"获取验证码失败: {e}")
 
-    def display_captcha(self, bg_img: bytes, sprite_img: bytes, positions):
-        """Display captcha images with detection results"""
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
-
-        # Display sprite image
-        sprite_array = np.frombuffer(sprite_img, np.uint8)
-        sprite_cv = cv2.imdecode(sprite_array, cv2.IMREAD_COLOR)
-        ax1.imshow(cv2.cvtColor(sprite_cv, cv2.COLOR_BGR2RGB))
-        ax1.set_title("Sprite Image")
-        ax1.axis('off')
-
-        # Display marked background
-        bg_array = np.frombuffer(bg_img, np.uint8)
-        bg_cv = cv2.imdecode(bg_array, cv2.IMREAD_COLOR)
-        ax2.imshow(cv2.cvtColor(bg_cv, cv2.COLOR_BGR2RGB))
-
-        # Mark detection points
-        colors = ['red', 'blue', 'green']
-        markers = ['o', 's', '^']
-        for i, pos in enumerate(positions):
-            if pos:
-                ax2.scatter(pos[0], pos[1], c=colors[i], marker=markers[i], s=100)
-                ax2.text(pos[0], pos[1], str(i + 1), color='white', ha='center', va='center',
-                         fontsize=12, bbox=dict(facecolor=colors[i], alpha=0.7, boxstyle='round'))
-
-        ax2.set_title("Detection Result")
-        ax2.axis('off')
-        plt.tight_layout()
-        plt.show()
+    def display_captcha(self, bg_img: bytes, sprite_img: bytes, matches):
+        """显示带有检测结果的验证码图像"""
+        display_match_comparisons(load_image(bg_img), load_image(sprite_img), matches)
 
     def ask_user_verification(self, test_index=None) -> bool:
         """询问用户识别是否正确"""
@@ -80,10 +58,10 @@ class CaptchaTester:
         print(f"共 {len(self.test_results)} 个测试结果需要验证")
 
         for i, result in enumerate(self.test_results):
-            bg_img, sprite_img, positions, test_index = result
+            bg_img, sprite_img, matches, test_index = result
 
             # 显示验证码和识别结果
-            self.display_captcha(bg_img, sprite_img, positions)
+            self.display_captcha(bg_img, sprite_img, matches)
 
             # 询问用户是否正确
             is_correct = self.ask_user_verification(test_index)
@@ -108,31 +86,68 @@ class CaptchaTester:
         """运行测试"""
         if self.batch_manual and not self.auto_check:
             # 批量手动模式：先获取所有图片，再统一验证
-            print("批量手动模式：先获取所有验证码图片...")
+            print("批量手动模式：使用多线程获取所有验证码图片...")
 
+            # 创建线程安全的队列和锁
+            task_queue = Queue()
+            result_queue = Queue()
+            lock = threading.Lock()
+
+            # 将任务放入队列
             for i in range(1, self.test_count + 1):
-                print(f"\n获取验证码 {i}/{self.test_count}")
+                task_queue.put(i)
 
-                # 获取验证码
-                try:
-                    bg_img, sprite_img, data = self.get_captcha_data()
-                    if bg_img is None or sprite_img is None:
-                        print("获取验证码失败，跳过本次测试")
-                        continue
+            # 工作线程函数
+            # noinspection PyShadowingNames
+            def worker():
+                while not task_queue.empty():
+                    # noinspection PyBroadException
+                    try:
+                        i = task_queue.get()
 
-                    # 识别验证码
-                    positions = ocr.main(bg_img, sprite_img, False, False)
-                    print(f"识别结果 {i}:", positions)
+                        with lock:
+                            print(f"\n获取验证码 {i}/{self.test_count}")
 
-                    # 存储结果，稍后验证
-                    self.test_results.append((bg_img, sprite_img, positions, i))
+                        # 获取验证码
+                        try:
+                            bg_img, sprite_img, data = self.get_captcha_data()
+                            if bg_img is None or sprite_img is None:
+                                with lock:
+                                    print("获取验证码失败，跳过本次测试")
+                                continue
 
-                    # 避免请求过于频繁
-                    time.sleep(1)
+                            # 识别验证码
+                            matches = icr_main(bg_img, sprite_img)
 
-                except Exception as e:
-                    print(f"获取或识别验证码 {i} 时出错: {e}")
-                    continue
+                            with lock:
+                                print(f"识别结果 {i}:", convert_matches_to_positions(matches))
+
+                            # 将结果放入队列
+                            result_queue.put((bg_img, sprite_img, matches, i))
+
+                        except Exception as e:
+                            with lock:
+                                print(f"获取或识别验证码 {i} 时出错: {e}")
+
+                        task_queue.task_done()
+                    except:
+                        pass
+
+            # 创建并启动多个工作线程
+            thread_count = min(20, self.test_count)  # 限制线程数量
+            threads = []
+            for _ in range(thread_count):
+                t = threading.Thread(target=worker)
+                t.daemon = True
+                t.start()
+                threads.append(t)
+
+            # 等待所有任务完成
+            task_queue.join()
+
+            # 从结果队列中收集所有结果
+            while not result_queue.empty():
+                self.test_results.append(result_queue.get())
 
             # 批量验证所有结果
             self.batch_ask_user_verification()
@@ -181,10 +196,7 @@ class CaptchaTester:
                             bg_scalc_rate = 340 / 672
 
                             for _, coord in enumerate(
-                                    ocr.find_part_positions(
-                                        ocr.load_and_preprocess(bg_img),
-                                        ocr.extract_blackest_parts(ocr.load_and_preprocess(sprite_img))
-                                    ), start=1
+                                    find_part_positions(bg_img, sprite_img), start=1
                             ):
                                 if len(coord) == 2:
                                     x, y = coord
@@ -223,11 +235,11 @@ class CaptchaTester:
                     # 识别验证码
                     try:
                         # 直接传入二进制数据
-                        positions = ocr.main(bg_img, sprite_img, False, False)
-                        print("识别结果:", positions)
+                        matches = icr_main(bg_img, sprite_img)
+                        print(f"识别结果 {i}:", convert_matches_to_positions(matches))
 
                         # 显示结果
-                        self.display_captcha(bg_img, sprite_img, positions)
+                        self.display_captcha(bg_img, sprite_img, matches)
 
                         is_correct = self.ask_user_verification(i)
 
@@ -269,8 +281,6 @@ class CaptchaTester:
 
 if __name__ == "__main__":
     import argparse
-    import cv2
-    import numpy as np
 
     parser = argparse.ArgumentParser(description='验证码识别准确率测试')
     parser.add_argument('--count', type=int, default=100, help='测试次数，默认为100')

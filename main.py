@@ -15,7 +15,7 @@ import numpy as np
 from playwright.sync_api import sync_playwright, Position
 from py_mini_racer import MiniRacer
 
-import ocr
+from ICR import find_part_positions
 from utils import get_base_path, is_nuitka, is_bundle
 
 base_path = get_base_path()
@@ -238,7 +238,7 @@ def get_captcha_data():
         "cap_cd": "",
         "uid": "",
         "lang": "zh-cn",
-        "entry_url": "http://localhost/",
+        "entry_url": "https://turing.captcha.gtimg.com/1/template/drag_ele.html",
         "elder_captcha": "0",
         "js": "/tcaptcha-frame.97a921e6.js",
         "login_appid": "",
@@ -389,10 +389,7 @@ def complete_captcha(retry=10):
     form_data = build_verify_form(data, [])
 
     for i in range(retry):
-        positions = ocr.find_part_positions(
-            ocr.load_and_preprocess(bg_img),
-            ocr.extract_blackest_parts(ocr.load_and_preprocess(sprite_img))
-        )
+        positions = find_part_positions(bg_img, sprite_img)
 
         form_data = build_verify_form(data, positions, form_data)
 
@@ -500,10 +497,7 @@ def complete_captcha_browser(retry=10):
 
                 bg_scalc_rate = bg_display_width / bg_original_width
 
-                positions = ocr.find_part_positions(
-                    ocr.load_and_preprocess(bg_img),
-                    ocr.extract_blackest_parts(ocr.load_and_preprocess(sprite_img))
-                )
+                positions = find_part_positions(bg_img, sprite_img)
 
                 for _, coord in enumerate(positions, start=1):
                     if len(coord) == 2:  # 确保每个子列表有x和y两个值

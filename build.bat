@@ -30,7 +30,7 @@ python -m nuitka --standalone ^
 echo.
 
 echo 创建压缩文件...
-tar -a -c -f "./dist/RainyunCheckIn.zip" "./dist/app.dist"
+powershell Compress-Archive -Path .\dist\app.dist\* -DestinationPath .\dist\RainyunCheckIn.zip
 
 echo.
 echo 打包完成！

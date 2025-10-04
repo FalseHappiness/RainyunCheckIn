@@ -4,7 +4,7 @@
 /playwright/
 /dist/
 /build/
-/__pycache__/
+**/__pycache__/
 /.idea/
 /fails/
 /config.json

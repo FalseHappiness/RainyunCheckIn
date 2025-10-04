@@ -6,4 +6,7 @@
 /build/
 /__pycache__/
 /.idea/
-/cookies.json
+/fails/
+/auth.json
+/pyinstaller/
+/tdc/

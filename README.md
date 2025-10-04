@@ -2,6 +2,10 @@
 
 一个自动签到雨云的 Python 脚本，支持命令行和网页界面操作。
 
+请不要使用此脚本白嫖雨云积分，仅作为学习交流使用。
+
+在 Windows 11 与 Ubuntu 24.04.1 LTS 上经过测试。
+
 ## 下载与安装
 
 ### 克隆仓库使用 Python 运行
@@ -13,16 +17,22 @@
 创建一个空目录并执行
 
 ```bash
-git clone https://github.com/FalseHappiness/RainyunCheckIn.git
+git clone https://github.com/FalseHappiness/RainyunCheckIn
 ```
 
 #### 2. 安装依赖：
 
-安装 Python 包
+安装 Python 包，最好创建虚拟环境运行
 
 ```bash
 pip install -r requirements.txt
 ```
+
+#### 3. 安装 Playwright Webkit
+
+可以不执行这步操作，运行 app.py 时会自动处理并安装
+
+在 Linux 上可能还需要安装一些依赖
 
 设置临时环境变量
 
@@ -38,10 +48,29 @@ $env:PLAYWRIGHT_BROWSERS_PATH="./playwright"  # Windows (PowerShell)
 python -m playwright install webkit
 ```
 
-#### 3. 配置 cookies.json
+#### 3. 配置 auth.json 登录雨云账号
 
-1. 在程序目录下创建或编辑 `cookies.json` 文件
-2. 按照以下格式填写你的雨云cookie信息：
+##### 方法一：使用 API 密钥（推荐）
+
+1. 在程序目录下创建或编辑 `auth.json` 文件
+2. 按照以下格式填写你的雨云 API 密钥：
+
+```json
+{
+  "x-api-key": ""
+}
+```
+
+获取 API 密钥 的方法：
+
+1. 登录雨云网站
+2. 打开 [总览 → 用户 → 账户设置 → API 密钥](https://app.rainyun.com/account/settings/api-key)
+3. 复制 `API 密钥` 或者 `重新生成` 一个，并保存到 `auth.json`
+
+##### 方法二：使用 Cookies
+
+1. 在程序目录下创建或编辑 `auth.json` 文件
+2. 按照以下格式填写你的雨云 Cookies 信息：
 
 ```json
 {
@@ -50,13 +79,15 @@ python -m playwright install webkit
 }
 ```
 
-获取cookie的方法：
+获取 Cookies 的方法：
 
 1. 登录雨云网站
 2. 按`(Fn+)F12`打开开发者工具（或者右键，然后点击 `检查` ）
 3. 转到`应用程序 (Application)`选项卡
 4. 在右侧 `存储` 项目下点开 `Cookie`，找到 `https://app.rainyun.com/` 的 Cookie
-5. 复制名称为 `dev-code` 和 `rain-session` 的值并保存到 `cookies.json`
+5. 复制名称为 `dev-code` 和 `rain-session` 的值并保存到 `auth.json`
+
+> ⚠️ **警告**: 不要把 `auth.json` 分享给其他人，否则其他人可以直接操作你的雨云账号！
 
 #### 4. 运行程序：
 
@@ -71,17 +102,17 @@ python app.py [命令]
 ### 帮助
 
 ```
-用法：app.py [-h] [-a] [-f] [-p PORT] {web,check_in,status}
-
 位置参数:
-{web,check_in,status}
-要执行的命令（web: 开启网页, check_in: 签到, status: 获取签到状态）
+  {web,check_in,status}
+                        要执行的命令（web: 开启网页, check_in: 签到, status: 获取签到状态）
 
 可选参数:
--h, --help显示帮助信息并退出
--a, --auto是否开启自动模式（命令为 check_in 时生效，默认关闭）
--f, --force是否跳过签到状态检测（命令为 check_in 时生效，默认关闭）
--p PORT, --port PORT网页端口（命令为 web 时生效，默认为 31278）
+  -h, --help            显示帮助信息并退出
+  -a, --auto            是否开启自动模式（命令为 check_in 时生效，默认关闭）
+  -f, --force           是否跳过签到状态检测（命令为 check_in 时生效，默认关闭）
+  -b, --browser-captcha
+                        是否模拟浏览器行为完成验证码（命令为 check_in 且开启 自动签到模式 时生效，默认关闭）
+  -p PORT, --port PORT  网页端口（命令为 web 时生效，默认为 31278）
 
 示例: python app.py check_in --auto
 ```
@@ -113,8 +144,15 @@ python app.py check_in --auto --force
 自动签到
 
 ```bash
-python app.py web check_in --auto
+python app.py check_in --auto
 ```
+
+#### --browser-captcha
+
+使用 Playwright 模拟浏览器行为完成验证码。如果不开启此选项，程序将自动构造验证码请求完成验证码，但仍然需要 Playwright
+Webkit 执行 JS 脚本以获取部分参数。
+
+不开启此选项通常会更快完成验证码。
 
 ### 手动签到
 
@@ -145,7 +183,8 @@ python app.py status
 - `main.py` - 主要逻辑实现
 - `app.py` - 程序入口和命令行接口
 - `web.py` - 网页支持功能
-- `ocr.py` - 验证码识别模块
+- `ocr.py` - 验证码识别模块（经过简单测试“正确率: 82.50% (165/200)”，多次尝试可确保验证成功）
+- `utils.py` - 实用工具
 - `index.html` - 网页主页面
 - `captcha.html` - 签到页面
 - `detect_accuracy.py` - 验证码识别准确率检测
@@ -157,7 +196,9 @@ python app.py status
 
 ### Playwright
 
-自动完成 TCaptcha 时，需要获取请求参数，需要通过无头 Playwright Webkit 运行 js 以获取参数
+自动完成 TCaptcha 时，需要获取请求参数，需要通过无头 Playwright Webkit 运行 JS 脚本以获取参数。
+
+为了方便使用，此程序会自动安装 Playwright Webkit 在程序所在目录下，哪怕已经在其他地方安装过，这会带来额外的空间占用。
 
 ## 许可证
 
@@ -167,3 +208,5 @@ python app.py status
 ## 问题反馈
 
 如果您遇到任何问题，请在 [GitHub Issues](https://github.com/FalseHappiness/RainyunCheckIn/issues) 提出。
+
+如果您可以解决问题，请创建一个 [拉取请求](https://github.com/FalseHappiness/RainyunCheckIn/pulls)。

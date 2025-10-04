@@ -34,6 +34,7 @@
 <div id="buttons">
     <button onclick="check_in()">签到</button>
     <button onclick="auto_check_in()">自动签到</button>
+    <button onclick="auto_check_in(true)">自动签到 (模拟浏览器)</button>
     <button onclick="req_is_check_in()">检测签到状态</button>
     <button onclick="clear_logs()">清除日志</button>
 </div>
@@ -87,11 +88,11 @@
     log('打开签到验证码')
   }
 
-  async function auto_check_in() {
+  async function auto_check_in(browser_captcha = false) {
     log('正在请求自动签到')
     try {
       const data = await (
-        await fetch("/auto_check_in?force=true", {
+        await fetch("/auto_check_in?force=true&browser_captcha=" + browser_captcha, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -99,7 +100,7 @@
         })
       ).json()
       const succeed = data.code === 200
-      log(build_str('请求自动签到结果' + succeed ? ': 签到成功' : '', data), data)
+      log(build_str('请求自动签到结果' + (succeed ? ': 签到成功' : ''), data), data)
     } catch (e) {
       log(build_str('请求自动签到错误', e), e)
     }
@@ -121,7 +122,7 @@
         })
       })).json()
       const succeed = data.code === 200
-      log(build_str('请求签到结果' + succeed ? ': 签到成功' : '', data), data)
+      log(build_str('请求签到结果' + (succeed ? ': 签到成功' : ''), data), data)
     } catch (e) {
       log(build_str('请求签到错误', e), e)
     }

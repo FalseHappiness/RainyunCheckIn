@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+import utils
 
 
 def handle_exit(_, __):
@@ -20,17 +21,17 @@ def handle_exit(_, __):
 signal.signal(signal.SIGINT, handle_exit)  # Ctrl+C
 signal.signal(signal.SIGTERM, handle_exit)  # kill 命令默认发送的信号
 
-is_bundle = getattr(sys, 'frozen', False)
+is_bundle = utils.is_bundle()
 
-if is_bundle:
-    # 运行在打包后的环境中
-    # noinspection PyProtectedMember,PyUnresolvedReferences
-    base_path = sys._MEIPASS
-else:
-    # 运行在本地环境中
-    base_path = os.path.dirname(os.path.abspath(__file__))
+base_path = utils.get_base_path()
 
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(base_path) / "playwright")
+# print(
+#     utils.is_bundle(), utils.is_nuitka(), utils.is_pyinstaller(),
+#     utils.get_base_path(), utils.get_program_base_path()
+# )
+
+if not utils.is_nuitka():
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(base_path) / "playwright")
 
 
 class ChineseHelpFormatter(argparse.HelpFormatter):
@@ -99,9 +100,9 @@ def json_print(binary):
     print(json.dumps(binary, indent=2, ensure_ascii=False))
 
 
-def check_cookies_file():
+def check_auth_file():
     # 定义文件名
-    filename = "cookies.json"
+    filename = "auth.json"
 
     # 检查文件是否存在
     if os.path.exists(filename):
@@ -110,42 +111,53 @@ def check_cookies_file():
             with open(filename, 'r', encoding='utf-8') as f:
                 cookies_data = json.load(f)
 
-            # 检查必需的字段是否存在且不为空
-            required_fields = ['dev-code', 'rain-session']
-            for field in required_fields:
-                if field not in cookies_data or not cookies_data[field]:
-                    print(f"cookies.json 错误: '{field}' 字段缺失或为空")
-                    sys.exit(1)
+            # 检查必需的字段：'x-api-key' 或 ('dev-code' 和 'rain-session') 必须存在且不为空
+            has_api_key = 'x-api-key' in cookies_data and cookies_data['x-api-key']
+            has_dev_and_rain = all(
+                field in cookies_data and cookies_data[field] for field in ['dev-code', 'rain-session']
+            )
 
-            # print("cookies.json 文件有效")
+            if not has_api_key and not has_dev_and_rain:
+                # 如果都没有，则打印详细的错误信息
+                if 'x-api-key' not in cookies_data or not cookies_data['x-api-key']:
+                    print("auth.json 错误: 'x-api-key' 字段缺失或为空")
+                if 'dev-code' not in cookies_data or not cookies_data['dev-code']:
+                    print("auth.json 错误: 'dev-code' 字段缺失或为空")
+                if 'rain-session' not in cookies_data or not cookies_data['rain-session']:
+                    print("auth.json 错误: 'rain-session' 字段缺失或为空")
+                print("提示: 必须提供有效的 'x-api-key' 或 ('dev-code' 和 'rain-session')")
+                sys.exit(1)
+
+            # print("auth.json 文件有效")
             return True
 
         except json.JSONDecodeError:
-            print("错误: cookies.json 文件不是有效的 JSON 格式")
+            print("错误: auth.json 文件不是有效的 JSON 格式")
             sys.exit(1)
         except Exception as e:
-            print(f"错误: 读取 cookies.json 时发生意外错误 - {str(e)}")
+            print(f"错误: 读取 auth.json 时发生意外错误 - {str(e)}")
             sys.exit(1)
     else:
         # 文件不存在，创建新文件
         default_data = {
             "dev-code": "",
-            "rain-session": ""
+            "rain-session": "",
+            "x-api-key": ""
         }
 
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(default_data, f, indent=4)
-            print("cookies.json 文件已创建，请按照文档说明填写 dev-code 和 rain-session")
+            print("auth.json 文件已创建，请按照文档说明填写 x-api-key 或填写 dev-code 和 rain-session")
             sys.exit(0)
         except Exception as e:
-            print(f"错误: 无法创建 cookies.json 文件 - {str(e)}")
+            print(f"错误: 无法创建 auth.json 文件 - {str(e)}")
             sys.exit(1)
 
 
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.0.0
+雨云自动签到程序 v1.1.0
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
@@ -172,6 +184,11 @@ parser.add_argument(
     help="是否跳过签到状态检测（命令为 check_in 时生效，默认关闭）"
 )
 parser.add_argument(
+    "-b", "--browser-captcha",
+    action="store_true",
+    help="是否模拟浏览器行为完成验证码（命令为 check_in 且开启 自动签到模式 时生效，默认关闭）"
+)
+parser.add_argument(
     "-p", "--port",
     type=str,
     default=31278,
@@ -182,7 +199,7 @@ args = parser.parse_args()
 
 print_program_info()
 
-check_cookies_file()
+check_auth_file()
 
 with sync_playwright() as p:
     if not Path(p.webkit.executable_path).exists():
@@ -215,9 +232,9 @@ if command == 'check_in':
             print('签到状态检测失败')
             json_print(status)
     if auto:
-        print('请等待')
+        print('请等待执行自动签到')
         start_time = time.time()
-        result = main.auto_check_in(True)
+        result = main.auto_check_in(True, args.browser_captcha)
         end_time = time.time()
         execution_time = end_time - start_time
         print(f"自动签到执行耗时: {execution_time:.4f} 秒")

@@ -1,16 +1,9 @@
-import sys
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_from_directory
-import os
 
 import main
-
-if getattr(sys, 'frozen', False):
-    # noinspection PyProtectedMember,PyUnresolvedReferences
-    base_path = sys._MEIPASS
-else:
-    base_path = os.path.dirname(os.path.abspath(__file__))
+from utils import get_base_path
 
 app = Flask(__name__)
 
@@ -27,7 +20,7 @@ def after_request(response):
 # 根路由返回HTML文件
 @app.route('/')
 def serve_html():
-    return send_from_directory(Path(base_path), "index.html")
+    return send_from_directory(Path(get_base_path()), "index.html")
 
 
 # 签到路由
@@ -44,11 +37,15 @@ def handle_check_in():
         return data, 200
 
 
+def bool_type(value):
+    return str(value).lower() in ('true', '1', 'yes', 'on')
+
+
 @app.route('/auto_check_in', methods=['GET'])
 def handle_auto_check_in():
-    force = request.args.get("force", "").lower()  # 获取参数并转为小写
-    force_bool = force in ("true", "1", "yes", "on")  # 检查是否表示 True
-    return jsonify(main.auto_check_in(force_bool))
+    force = request.args.get("force", type=bool_type)
+    browser_captcha = request.args.get("browser_captcha", type=bool_type)
+    return jsonify(main.auto_check_in(force, browser_captcha))
 
 
 # 检查签到状态路由

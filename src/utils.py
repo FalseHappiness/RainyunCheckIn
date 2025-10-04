@@ -16,7 +16,7 @@ def is_pyinstaller():
 
 def get_base_path():
     # noinspection PyProtectedMember,PyUnresolvedReferences
-    return str(sys._MEIPASS if is_pyinstaller() else Path(__file__).absolute().parent)
+    return str(sys._MEIPASS if is_pyinstaller() else Path(__file__).absolute().parent.parent)
 
 
 def get_program_base_path():

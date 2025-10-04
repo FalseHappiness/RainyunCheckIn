@@ -36,7 +36,7 @@ def load_image(image_data):
     return img
 
 
-def load_and_preprocess(image_data: Union[str, Path, bytes, BinaryIO], threshold: int = 30) -> np.ndarray:
+def load_and_preprocess(image_data: Union[str, Path, bytes, BinaryIO, np.ndarray], threshold: int = 30) -> np.ndarray:
     """
     加载图像并预处理，提取接近黑色的部分（基于BGR色彩空间）
 
@@ -57,8 +57,17 @@ def load_and_preprocess(image_data: Union[str, Path, bytes, BinaryIO], threshold
 
 
 def should_merge(rect1: Tuple[int, int, int, int], rect2: Tuple[int, int, int, int],
-                 overlap_threshold: float = 0.3) -> bool:
-    """判断两个矩形是否应该合并"""
+                 overlap_threshold: float = 0.0) -> bool:
+    """判断两个矩形是否应该合并
+
+    Args:
+        rect1: 第一个矩形 (x, y, width, height)
+        rect2: 第二个矩形 (x, y, width, height)
+        overlap_threshold: 重叠面积占较小矩形面积的比例阈值
+
+    Returns:
+        bool: 如果应该合并返回True，否则返回False
+    """
     x1, y1, w1, h1 = rect1
     x2, y2, w2, h2 = rect2
 
@@ -68,8 +77,12 @@ def should_merge(rect1: Tuple[int, int, int, int], rect2: Tuple[int, int, int, i
     x_right = min(x1 + w1, x2 + w2)
     y_bottom = min(y1 + h1, y2 + h2)
 
-    if x_right < x_left or y_bottom < y_top:
+    if x_right <= x_left or y_bottom <= y_top:
         return False  # 没有交集
+
+    # 如果阈值为0，只要有重叠就合并
+    if overlap_threshold == 0:
+        return True
 
     # 计算交集面积
     intersection_area = (x_right - x_left) * (y_bottom - y_top)
@@ -83,46 +96,144 @@ def should_merge(rect1: Tuple[int, int, int, int], rect2: Tuple[int, int, int, i
     return intersection_area > overlap_threshold * min_area
 
 
-def merge_rectangles(rectangles: List[Tuple[int, int, int, int]]) -> List[Tuple[int, int, int, int]]:
-    """合并重叠的矩形"""
+def merge_rectangles(rectangles: List[Tuple[int, int, int, int]],
+                     overlap_threshold: float = 0.0) -> List[Tuple[int, int, int, int]]:
+    """合并重叠的矩形
+
+    Args:
+        rectangles: 矩形列表，每个矩形表示为(x, y, width, height)
+        overlap_threshold: 重叠面积占较小矩形面积的比例阈值，0表示只要有重叠就合并
+
+    Returns:
+        合并后的矩形列表
+    """
     if not rectangles:
         return []
 
-    # 按照矩形面积从大到小排序，优先处理大矩形
-    rectangles = sorted(rectangles, key=lambda r: r[2] * r[3], reverse=True)
+    # 创建一个副本以避免修改原始列表
+    rects = [rect for rect in rectangles]
+    changed = True
 
-    merged = []
-    while rectangles:
-        current = rectangles.pop(0)
-        to_merge = [current]
+    # 持续合并直到没有更多合并发生
+    while changed:
+        changed = False
+        new_rects = []
+        merged_indices = set()
 
-        # 检查剩余矩形是否可以与当前矩形合并
-        i = 0
-        while i < len(rectangles):
-            if should_merge(current, rectangles[i]):
-                to_merge.append(rectangles.pop(i))
-            else:
-                i += 1
+        for i in range(len(rects)):
+            if i in merged_indices:
+                continue
 
-        # 合并所有需要合并的矩形
-        if len(to_merge) > 1:
-            # 计算合并后的大矩形边界
-            x_min = min(r[0] for r in to_merge)
-            y_min = min(r[1] for r in to_merge)
-            x_max = max(r[0] + r[2] for r in to_merge)
-            y_max = max(r[1] + r[3] for r in to_merge)
-            merged_rect = (x_min, y_min, x_max - x_min, y_max - y_min)
-            merged.append(merged_rect)
+            current = rects[i]
+            merged_rect = current
+
+            # 尝试与后面的所有矩形合并
+            for j in range(i + 1, len(rects)):
+                if j in merged_indices:
+                    continue
+
+                candidate = rects[j]
+                if should_merge(merged_rect, candidate, overlap_threshold):
+                    # 计算合并后的矩形边界
+                    x_min = min(merged_rect[0], candidate[0])
+                    y_min = min(merged_rect[1], candidate[1])
+                    x_max = max(merged_rect[0] + merged_rect[2], candidate[0] + candidate[2])
+                    y_max = max(merged_rect[1] + merged_rect[3], candidate[1] + candidate[3])
+                    merged_rect = (x_min, y_min, x_max - x_min, y_max - y_min)
+                    merged_indices.add(j)
+                    changed = True
+
+            new_rects.append(merged_rect)
+
+        rects = new_rects
+
+    return rects
+
+
+def merge_close_rectangles(rectangles, max_distance):
+    """
+    合并边缘距离相近的矩形
+
+    参数:
+        rectangles: 矩形列表，每个矩形表示为(x, y, w, h)
+        max_distance: 最大合并距离
+
+    返回:
+        合并后的矩形列表
+    """
+
+    # 我们需要一个辅助函数来计算两个矩形之间的最小距离
+    def rect_distance(r1, r2):
+        # 矩形1的坐标
+        x1, y1, w1, h1 = r1
+        x1_end, y1_end = x1 + w1, y1 + h1
+
+        # 矩形2的坐标
+        x2, y2, w2, h2 = r2
+        x2_end, y2_end = x2 + w2, y2 + h2
+
+        # 计算水平距离
+        if x1_end < x2:
+            dx = x2 - x1_end
+        elif x2_end < x1:
+            dx = x1 - x2_end
         else:
-            merged.append(current)
+            dx = 0
 
-    return merged
+        # 计算垂直距离
+        if y1_end < y2:
+            dy = y2 - y1_end
+        elif y2_end < y1:
+            dy = y1 - y2_end
+        else:
+            dy = 0
+
+        # 返回欧几里得距离
+        return (dx ** 2 + dy ** 2) ** 0.5
+
+    changed = True
+    while changed and len(rectangles) > 1:
+        changed = False
+        new_rectangles = []
+        merged = [False] * len(rectangles)
+
+        for i in range(len(rectangles)):
+            if merged[i]:
+                continue
+
+            rect1 = rectangles[i]
+            current_rect = rect1
+
+            for j in range(i + 1, len(rectangles)):
+                if merged[j]:
+                    continue
+
+                rect2 = rectangles[j]
+                distance = rect_distance(current_rect, rect2)
+
+                if distance <= max_distance:
+                    # 合并两个矩形
+                    x = min(current_rect[0], rect2[0])
+                    y = min(current_rect[1], rect2[1])
+                    w = max(current_rect[0] + current_rect[2], rect2[0] + rect2[2]) - x
+                    h = max(current_rect[1] + current_rect[3], rect2[1] + rect2[3]) - y
+                    current_rect = (x, y, w, h)
+                    merged[j] = True
+                    changed = True
+
+            new_rectangles.append(current_rect)
+            merged[i] = True
+
+        rectangles = new_rectangles
+
+    return rectangles
 
 
 def extract_black_regions(
         binary_image,
         min_area: int = 100,
         merged: bool = True,
+        merge_distance: int = 0,
         sort_mode: Literal["area-desc", "area-asc", "position-tl", "position-l"] = "area-desc"
 ) -> List[Tuple[int, int, int, int]]:
     """
@@ -132,6 +243,7 @@ def extract_black_regions(
         binary_image: 二值图像
         min_area: 最小区域面积阈值
         merged: 是否合并重叠矩形
+        merge_distance: 合并距离阈值，如果两个矩形边缘距离小于此值则合并
         sort_mode: 排序模式
             "area-desc": 按面积从大到小
             "area-asc": 按面积从小到大
@@ -154,6 +266,11 @@ def extract_black_regions(
     if merged:
         # 合并重叠的矩形
         rectangles = merge_rectangles(rectangles)
+
+    # 如果设置了合并距离，合并边缘距离相近的矩形
+    if merge_distance > 0 and len(rectangles) > 1:
+        # 计算矩形间的距离并合并
+        rectangles = merge_close_rectangles(rectangles, merge_distance)
 
     # 根据排序模式进行排序
     if sort_mode == "area-desc":
@@ -251,7 +368,7 @@ def analyze_rotated_regions(sprite_mask, sprite_black_regions):
         # 从-45度到45度，步长1度
         for angle in range(-45, 46):
             # 旋转图像
-            rotated_img = opencv_rotate(region_roi, angle)
+            rotated_img = opencv_rotate(region_roi, -angle)
 
             # 获取轮廓的边界矩形
             rects = extract_black_regions(rotated_img, 0)
@@ -345,18 +462,52 @@ def display_rotation_analysis(rotation_data, original_sprite):
 
 
 def binary_similarity(img1, img2):
-    # 确保图像是二值图（0和255）
-    _, img1 = cv2.threshold(img1, 127, 255, cv2.THRESH_BINARY)
-    _, img2 = cv2.threshold(img2, 127, 255, cv2.THRESH_BINARY)
-
-    # 计算相同像素的数量
-    matching_pixels = np.sum(img1 == img2)
-    total_pixels = img1.size
-    similarity = (matching_pixels / total_pixels) * 100
-    return similarity
+    # 使用向量化比较
+    matching_pixels = np.count_nonzero((img1 > 127) == (img2 > 127))
+    return (matching_pixels / img1.size) * 100
 
 
-def match_sprite_to_background(bg_black_regions, preprocessed_bg, rotation_data, angle_count=91):
+def brute_search(rotated_roi, bg_roi, bg_rect, w_r, h_r):
+    max_similarity = -1
+    best_bg_sub_rect = None
+    bg_x, bg_y, bg_w, bg_h = bg_rect
+
+    # 计算滑动窗口的范围
+    for y in range(0, bg_h - h_r + 1):
+        for x in range(0, bg_w - w_r + 1):
+            # 获取当前窗口的ROI
+            bg_sub_roi = bg_roi[y:y + h_r, x:x + w_r]
+
+            # 计算相似度
+            current_sim = binary_similarity(rotated_roi, bg_sub_roi)
+
+            # 更新最大相似度和最佳位置
+            if current_sim > max_similarity:
+                max_similarity = current_sim
+                best_bg_sub_rect = (bg_x + x, bg_y + y, w_r, h_r)
+    return best_bg_sub_rect, max_similarity
+
+
+def template_search(rotated_roi, bg_roi, bg_rect, w_r, h_r):
+    bg_x, bg_y, bg_w, bg_h = bg_rect
+
+    # 确保输入是二值图像（0和255），并转换为单通道
+    template = rotated_roi.astype(np.uint8)
+    search_area = bg_roi[:bg_h, :bg_w].astype(np.uint8)
+
+    # 使用 cv2.matchTemplate（TM_CCORR_NORMED 或 TM_CCOEFF_NORMED）
+    res = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
+
+    # 找到最佳匹配位置
+    _, max_val, _, max_pos = cv2.minMaxLoc(res)
+    max_similarity = max_val * 100  # 转换为百分比
+
+    # 返回匹配位置
+    best_bg_sub_rect = (bg_x + max_pos[0], bg_y + max_pos[1], w_r, h_r)
+    return best_bg_sub_rect, max_similarity
+
+
+def match_sprite_to_background(bg_black_regions, preprocessed_bg, rotation_data, method='template'):
     """
     将sprite区域与背景黑色区域进行匹配
 
@@ -364,45 +515,25 @@ def match_sprite_to_background(bg_black_regions, preprocessed_bg, rotation_data,
         bg_black_regions: 背景中的黑色区域列表
         preprocessed_bg: 预处理后的二值化背景图像
         rotation_data: sprite旋转分析数据
+        method: 匹配背景块方法
 
     返回:
         匹配结果列表，每个元素是一个字典包含匹配信息
     """
-    # 计算背景区域的宽高比
-    bg_ratios = []
-    for x, y, w, h in bg_black_regions:
-        aspect_ratio = round(float(w) / h, 12) if h != 0 else float('inf')
-        bg_ratios.append({
-            'rect': (x, y, w, h),
-            'aspect_ratio': aspect_ratio
-        })
+    func = {
+        'template': template_search,
+        'brute': brute_search
+    }.get(method, None)
 
-    # 存储匹配结果
-    matches = []
-    used_bg_regions = set()  # 记录已经被匹配的背景区域
+    # 存储所有可能的匹配（包括冲突的）
+    all_matches = []
 
-    # 遍历每个sprite区域
+    # 第一阶段：收集所有可能的匹配
     for sprite_idx, sprite_data in enumerate(rotation_data):
-        best_match = None
-        best_score = -1
-        best_angle = 0
-        best_rotated_img = None
-
         # 遍历每个背景区域
-        for bg_idx, bg_info in enumerate(bg_ratios):
-            if bg_idx in used_bg_regions:
-                continue  # 跳过已匹配的背景区域
-
-            bg_ratio = bg_info['aspect_ratio']
-            bg_rect = bg_info['rect']
-
-            # 根据宽高比，找出sprite旋转后最接近背景的几个角度（由于匹配的速度很快，所以使用所有角度更加准确）
-            sorted_rotations = sorted(sprite_data['rotations'],
-                                      key=lambda r: abs(r['aspect_ratio'] - bg_ratio))
-            top_rotations = sorted_rotations[:angle_count]
-
+        for bg_idx, bg_rect in enumerate(bg_black_regions):
             # 比较这些角度
-            for rotation in top_rotations:
+            for rotation in sprite_data['rotations']:
                 # 获取旋转后的图像
                 rotated_img = rotation['rotated_image']
                 x_r, y_r, w_r, h_r = rotation['rect']
@@ -414,42 +545,86 @@ def match_sprite_to_background(bg_black_regions, preprocessed_bg, rotation_data,
                 bg_x, bg_y, bg_w, bg_h = bg_rect
                 bg_roi = preprocessed_bg[bg_y:bg_y + bg_h, bg_x:bg_x + bg_w]
 
-                # 调整大小使两个ROI相同尺寸
-                max_width = max(w_r, bg_w)
-                max_height = max(h_r, bg_h)
+                if func is None:
+                    # 速度匹配
+                    # 调整大小使两个ROI相同尺寸
+                    max_width = max(w_r, bg_w)
+                    max_height = max(h_r, bg_h)
 
-                # 调整sprite ROI
-                sprite_resized = cv2.resize(rotated_roi, (max_width, max_height),
+                    # 调整sprite ROI
+                    sprite_resized = cv2.resize(rotated_roi, (max_width, max_height),
+                                                interpolation=cv2.INTER_NEAREST)
+
+                    # 调整背景ROI
+                    bg_resized = cv2.resize(bg_roi, (max_width, max_height),
                                             interpolation=cv2.INTER_NEAREST)
 
-                # 调整背景ROI
-                bg_resized = cv2.resize(bg_roi, (max_width, max_height),
-                                        interpolation=cv2.INTER_NEAREST)
+                    # 计算相似度
+                    similarity = binary_similarity(sprite_resized, bg_resized)
 
-                # 计算相似度
-                similarity = binary_similarity(sprite_resized, bg_resized)
+                    best_bg_sub_rect = bg_rect
+                else:
+                    # 检查是否需要调整rotated_roi的大小
+                    if h_r > bg_h or w_r > bg_w:
+                        # 计算新的尺寸，只缩小较大的维度
+                        new_w = min(w_r, bg_w)  # 如果w_r > bg_w则缩小宽度，否则保持
+                        new_h = min(h_r, bg_h)  # 如果h_r > bg_h则缩小高度，否则保持
 
-                # 更新最佳匹配
-                if similarity > best_score:
-                    best_score = similarity
-                    best_match = bg_idx
-                    best_angle = rotation['angle']
-                    best_rotated_img = rotated_roi
+                        # 缩放rotated_roi
+                        rotated_roi = cv2.resize(rotated_roi, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                        w_r, h_r = new_w, new_h
 
-        # 如果有匹配的背景区域
-        if best_match is not None:
-            used_bg_regions.add(best_match)
-            matches.append({
-                'sprite_idx': sprite_idx,
-                'bg_idx': best_match,
-                'angle': best_angle,
-                'similarity': best_score,
-                'sprite_rect': sprite_data['original_region'],
-                'bg_rect': bg_ratios[best_match]['rect'],
-                'rotated_sprite': best_rotated_img
-            })
+                    # 在bg_roi上滑动窗口进行比较
+                    best_bg_sub_rect, similarity = func(rotated_roi, bg_roi, bg_rect, w_r, h_r)
 
-    return matches
+                # 存储最佳匹配
+                all_matches.append({
+                    'sprite_idx': sprite_idx,
+                    'bg_idx': bg_idx,
+                    'angle': rotation['angle'],
+                    'similarity': similarity,
+                    'sprite_rect': sprite_data['original_region'],
+                    'bg_rect': best_bg_sub_rect,
+                    'rotated_sprite': rotated_roi
+                })
+
+    # 第二阶段：解决冲突，选择最佳匹配
+    final_matches = []
+    used_bg_regions = set()
+    used_sprites = set()
+
+    # 按相似度降序排序所有匹配
+    all_matches.sort(key=lambda x_: -x_['similarity'])
+
+    # 遍历排序后的匹配，选择最佳且不冲突的
+    for match in all_matches:
+        sprite_idx = match['sprite_idx']
+        bg_idx = match['bg_idx']
+
+        # 如果sprite已被使用，跳过
+        if sprite_idx in used_sprites:
+            continue
+
+        # 如果不使用滑动窗口匹配，跳过同一个背景区域
+        if func is None and bg_idx in used_bg_regions:
+            continue
+
+        # 添加到最终匹配结果
+        final_matches.append(match)
+        used_sprites.add(sprite_idx)
+        used_bg_regions.add(bg_idx)
+
+        # 如果所有sprite或背景区域都已匹配，提前退出
+        if len(used_sprites) == len(rotation_data):
+            break
+
+        if func is None and len(used_bg_regions) == len(bg_black_regions):
+            break
+
+    # 按照 sprite_idx 从小到大排序
+    final_matches = sorted(final_matches, key=lambda x: x.get('sprite_idx', 'inf'))
+
+    return final_matches
 
 
 def display_matches_on_background(original_bg, matches):
@@ -535,15 +710,50 @@ def display_match_comparisons(original_bg, original_sprite, matches):
     plt.show()
 
 
-def main(bg_data, sprite_data, show_results=False, show_preprocessed=False):
+def preprocess_mask(img, scale_factor: int | float = 4, kernel_size=2, iterations=1):
+    # 创建膨胀核
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+    # 图像膨胀
+    img = cv2.dilate(img, kernel, iterations=iterations)
+
+    # 减分辨率(使用区域平均)
+    height, width = img.shape
+    img = cv2.resize(img,
+                     (int(width // scale_factor), int(height // scale_factor)),
+                     interpolation=cv2.INTER_AREA)
+
+    # 再次二值化(因为降采样可能导致灰度变化)
+    _, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
+
+    # 使用最近邻插值进行放大
+    img = cv2.resize(img,
+                     (width, height),
+                     interpolation=cv2.INTER_NEAREST)
+
+    return img
+
+
+def main(bg_data, sprite_data, match_method='template', show_results=False, show_preprocessed=False):
     # 加载原始背景图像
     original_bg = load_image(bg_data)
+
     # 加载Sprite图像
     original_sprite = load_image(sprite_data)
 
+    height, width = original_sprite.shape[:2]
+    original_sprite = cv2.resize(
+        original_sprite,
+        (int(width * 1.55), int(height * 1.55)),
+        interpolation=cv2.INTER_NEAREST
+    )
+
     # 预处理图像
-    bg_mask = load_and_preprocess(original_bg)
+    bg_mask = load_and_preprocess(original_bg, 25)
     sprite_mask = load_and_preprocess(original_sprite)
+
+    bg_mask = preprocess_mask(bg_mask)
+    sprite_mask = preprocess_mask(sprite_mask, 1)
 
     # 如果需要显示预处理结果
     if show_preprocessed:
@@ -563,7 +773,7 @@ def main(bg_data, sprite_data, show_results=False, show_preprocessed=False):
         plt.show()
 
     # 提取背景图像中的黑色区域并合并重叠的（选取最大的10个）
-    bg_black_regions = extract_black_regions(bg_mask, 500)[:10]
+    bg_black_regions = extract_black_regions(bg_mask, 50, merge_distance=5)[:10]
     # 提取Sprite图像中的黑色区域
     sprite_black_regions = extract_black_regions(sprite_mask, sort_mode="position-l")
 
@@ -577,12 +787,18 @@ def main(bg_data, sprite_data, show_results=False, show_preprocessed=False):
         display_rotation_analysis(rotation_data, original_sprite)
 
     # 匹配sprite到背景区域
-    matches = match_sprite_to_background(bg_black_regions, bg_mask, rotation_data)
+    matches = match_sprite_to_background(bg_black_regions, bg_mask, rotation_data, match_method)
 
     # 显示匹配结果
     if show_results:
         display_matches_on_background(original_bg, matches)
         display_match_comparisons(original_bg, original_sprite, matches)
+
+    for match in matches:
+        if 'sprite_rect' in match:
+            original_tuple = match['sprite_rect']
+            scaled_tuple = tuple(int(x // 1.55) for x in original_tuple)
+            match['sprite_rect'] = scaled_tuple
 
     return matches
 
@@ -595,10 +811,10 @@ def convert_matches_to_positions(matches):
     return positions
 
 
-def find_part_positions(bg_img, sprite_img):
+def find_part_positions(bg_img, sprite_img, match_method='template'):
     """在图像中查找所有sprite部分的位置，返回中心点坐标列表"""
     return convert_matches_to_positions(
-        main(bg_img, sprite_img, False, False)
+        main(bg_img, sprite_img, match_method, False, False)
     )
 
 
@@ -612,7 +828,8 @@ if __name__ == "__main__":
         print("测试图片不存在，请确保tests/bg.jpg和tests/sprite.jpg存在")
     else:
         start_time = time.time()
-        result = main(bg, sprite, True, True)
+        result = main(bg, sprite, 'template', True, True)
+        # result = main(bg, sprite, 'template', False, False)
         end_time = time.time()
         execution_time = end_time - start_time
         for info in result:

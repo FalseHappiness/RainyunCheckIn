@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-import utils
+import src.utils as utils
 
 
 def handle_exit(_, __):
@@ -23,13 +23,11 @@ is_bundle = utils.is_bundle()
 
 base_path = utils.get_base_path()
 
+
 # print(
 #     utils.is_bundle(), utils.is_nuitka(), utils.is_pyinstaller(),
 #     utils.get_base_path(), utils.get_program_base_path()
 # )
-
-if not utils.is_nuitka():
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(base_path) / "playwright")
 
 
 class ChineseHelpFormatter(argparse.HelpFormatter):
@@ -98,71 +96,16 @@ def json_print(binary):
     print(json.dumps(binary, indent=2, ensure_ascii=False))
 
 
-def check_auth_file():
-    # 定义文件名
-    filename = "auth.json"
-
-    # 检查文件是否存在
-    if os.path.exists(filename):
-        try:
-            # 尝试读取并解析 JSON 文件
-            with open(filename, 'r', encoding='utf-8') as f:
-                cookies_data = json.load(f)
-
-            # 检查必需的字段：'x-api-key' 或 ('dev-code' 和 'rain-session') 必须存在且不为空
-            has_api_key = 'x-api-key' in cookies_data and cookies_data['x-api-key']
-            has_dev_and_rain = all(
-                field in cookies_data and cookies_data[field] for field in ['dev-code', 'rain-session']
-            )
-
-            if not has_api_key and not has_dev_and_rain:
-                # 如果都没有，则打印详细的错误信息
-                if 'x-api-key' not in cookies_data or not cookies_data['x-api-key']:
-                    print("auth.json 错误: 'x-api-key' 字段缺失或为空")
-                if 'dev-code' not in cookies_data or not cookies_data['dev-code']:
-                    print("auth.json 错误: 'dev-code' 字段缺失或为空")
-                if 'rain-session' not in cookies_data or not cookies_data['rain-session']:
-                    print("auth.json 错误: 'rain-session' 字段缺失或为空")
-                print("提示: 必须提供有效的 'x-api-key' 或 ('dev-code' 和 'rain-session')")
-                sys.exit(1)
-
-            # print("auth.json 文件有效")
-            return True
-
-        except json.JSONDecodeError:
-            print("错误: auth.json 文件不是有效的 JSON 格式")
-            sys.exit(1)
-        except Exception as e:
-            print(f"错误: 读取 auth.json 时发生意外错误 - {str(e)}")
-            sys.exit(1)
-    else:
-        # 文件不存在，创建新文件
-        default_data = {
-            "dev-code": "",
-            "rain-session": "",
-            "x-api-key": ""
-        }
-
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(default_data, f, indent=4)
-            print("auth.json 文件已创建，请按照文档说明填写 x-api-key 或填写 dev-code 和 rain-session")
-            sys.exit(0)
-        except Exception as e:
-            print(f"错误: 无法创建 auth.json 文件 - {str(e)}")
-            sys.exit(1)
-
-
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.3.0
+雨云自动签到程序 v1.4.0
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
 
 parser = ChineseArgumentParser(
     formatter_class=ChineseHelpFormatter,
-    description="雨云自动签到程序 https://github.com/FalseHappiness/RainyunCheckIn",
+    description="雨云自动签到程序 v1.4.0 https://github.com/FalseHappiness/RainyunCheckIn",
     epilog="示例: python app.py check_in --auto"
 )
 
@@ -182,27 +125,42 @@ parser.add_argument(
     help="是否跳过签到状态检测（命令为 check_in 时生效，默认关闭）"
 )
 parser.add_argument(
-    "-b", "--browser-captcha",
-    action="store_true",
-    help="是否模拟浏览器行为完成验证码（命令为 check_in 且开启 自动签到模式 时生效，默认关闭）"
-)
-parser.add_argument(
     "-p", "--port",
     type=str,
     default=31278,
     help="网页端口（命令为 web 时生效，默认为 31278）"
+)
+parser.add_argument(
+    "-m", "--method",
+    type=str,
+    default='template',
+    choices=['template', 'brute', 'speed'],
+    help="匹配背景块与需选块的方法（命令为 check_in 且开启 自动签到模式 或命令为 web 时生效，默认为 template）"
+)
+parser.add_argument(
+    "-c", "--config",
+    type=str,
+    default='',
+    help="设置 config 文件路径，默认为程序同目录 config.json"
 )
 
 args = parser.parse_args()
 
 print_program_info()
 
-check_auth_file()
-
 command = args.command
 
+config_path = (Path(utils.get_program_base_path()) / 'config.json').resolve()
+
+if args.config:
+    config_path = Path(args.config).resolve()
+
+os.environ["CONFIG_PATH"] = str(config_path)
+
+os.environ["MATCH_METHOD"] = str(args.method)
+
 if command == 'check_in':
-    import main
+    import src.main as main
 
     auto = args.auto
     print(f"执行{'自动' if auto else '手动'}签到")
@@ -224,7 +182,7 @@ if command == 'check_in':
     if auto:
         print('请等待执行自动签到')
         start_time = time.time()
-        result = main.auto_check_in(True, args.browser_captcha)
+        result = main.auto_check_in(True)
         end_time = time.time()
         execution_time = end_time - start_time
         print(f"自动签到执行耗时: {execution_time:.4f} 秒")
@@ -232,7 +190,7 @@ if command == 'check_in':
         captcha = None
         while True:
             try:
-                text = f"请打开 {Path(base_path) / 'captcha.html'} 完成验证码，并输入显示的 Base64 验证码: " if captcha is None else "验证码错误，请重新输入: "
+                text = f"请打开 {Path(base_path) / 'static' / 'captcha.html'} 完成验证码，并输入显示的 Base64 验证码: " if captcha is None else "验证码错误，请重新输入: "
                 captcha = json.loads(base64.b64decode(input(text)))
                 if captcha.get('randstr') or captcha.get('ticket'):
                     break
@@ -243,11 +201,11 @@ if command == 'check_in':
     print('签到结果: ' + ('签到成功' if result.get('code') == 200 else ''))
     json_print(result)
 elif command == 'web':
-    import web
+    import src.web as web
 
     web.run_main(host='localhost', port=args.port, debug=False)
 elif command == 'status':
-    import main
+    import src.main as main
 
     print('检测签到状态...')
     status = main.get_check_in_status()

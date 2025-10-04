@@ -1,35 +1,36 @@
 chcp 65001
 
 @echo off
-echo 正在使用 Nuitka 打包 RainyunAutoCheckIn...
+echo 正在使用 Nuitka 打包 RainyunCheckIn...
 echo.
 
-set PLAYWRIGHT_BROWSERS_PATH=./playwright
-
 python -m nuitka --standalone ^
-                 --follow-imports ^
                  --nofollow-import-to="matplotlib" ^
+                 --nofollow-import-to="pillow" ^
                  --python-flag="-S" ^
                  --mingw64 ^
                  --main="app.py" ^
-                 --onefile-cache-mode="auto" ^
-                 --include-data-files=captcha.html=.\ ^
-                 --include-data-files=index.html=.\ ^
-                 --include-data-files=env.js=.\ ^
-                 --playwright-include-browser="webkit-2203" ^
-                 --playwright-include-browser="winldd-1007" ^
+                 --include-data-files=.\static\captcha.html=.\static\ ^
+                 --include-data-files=.\static\index.html=.\static\ ^
+                 --include-data-files=.\static\env.js=.\static\ ^
                  --output-dir="dist" ^
-                 --output-filename="RainyunAutoCheckIn.exe" ^
+                 --output-filename="RainyunCheckIn.exe" ^
                  --company-name="FalseHappiness" ^
-                 --product-name="RainyunAutoCheckIn" ^
-                 --file-version="1.3.0" ^
-                 --product-version="1.3.0" ^
+                 --product-name="RainyunCheckIn" ^
+                 --file-version="1.4.0" ^
+                 --product-version="1.4.0" ^
                  --file-description="雨云自动签到程序 https://github.com/FalseHappiness/RainyunCheckIn" ^
                  --copyright="Copyright © 2025 FalseHappiness" ^
                  --enable-plugin=no-qt ^
                  --enable-plugins="upx" ^
                  --upx-binary="./upx-5.0.2-win64" ^
-                 --windows-console-mode="force"
+                 --windows-console-mode="force" ^
+                 --no-deployment-flag=self-execution
+
+echo.
+
+echo 创建压缩文件...
+tar -a -c -f "./dist/RainyunCheckIn.zip" "./dist/app.dist"
 
 echo.
 echo 打包完成！

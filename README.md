@@ -17,7 +17,7 @@
 创建一个空目录并执行
 
 ```bash
-git clone https://github.com/FalseHappiness/RainyunCheckIn
+git clone https://github.com/FalseHappiness/RainyunCheckIn.git
 ```
 
 #### 2. 安装依赖：
@@ -31,6 +31,8 @@ pip install -r requirements.txt
 #### 3. 安装 Playwright Webkit
 
 可以不执行这步操作，运行 app.py 时会自动处理并安装
+
+如果不需要模拟浏览器完成验证码，也不需要安装
 
 在 Linux 上可能还需要安装一些依赖
 
@@ -149,8 +151,8 @@ python app.py check_in --auto
 
 #### --browser-captcha
 
-使用 Playwright 模拟浏览器行为完成验证码。如果不开启此选项，程序将自动构造验证码请求完成验证码，但仍然需要 Playwright
-Webkit 执行 JS 脚本以获取部分参数。
+使用 Playwright 模拟浏览器行为完成验证码。如果不开启此选项，程序将自动构造验证码请求完成验证码，并使用 PyMiniRacer
+来获取部分请求参数。
 
 不开启此选项通常会更快完成验证码。
 
@@ -189,6 +191,7 @@ python app.py status
 - `captcha.html` - 签到页面
 - `detect_accuracy.py` - 验证码识别准确率检测
 - `build.bat` - 构建可执行文件的脚本
+- `env.js` - 补充 NodeJS 环境
 
 ### 构建程序
 
@@ -196,9 +199,13 @@ python app.py status
 
 ### Playwright
 
-自动完成 TCaptcha 时，需要获取请求参数，需要通过无头 Playwright Webkit 运行 JS 脚本以获取参数。
+开启参数 --browser-captcha 自动完成 TCaptcha 时，需要获取请求参数，需要通过无头 Playwright Webkit 运行 JS 脚本以获取参数。
 
-为了方便使用，此程序会自动安装 Playwright Webkit 在程序所在目录下，哪怕已经在其他地方安装过，这会带来额外的空间占用。
+为了方便使用，此程序会在用到它时，自动安装 Playwright Webkit 在程序所在目录下，哪怕已经在其他地方安装过，这会带来额外的空间占用。
+
+### PyMiniRacer
+
+不开启参数 --browser-captcha 自动完成 TCaptcha 时，需要获取请求参数，需要通过 PyMiniRacer 运行 NodeJS 脚本以获取参数。
 
 ## 许可证
 

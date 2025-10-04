@@ -1,19 +1,22 @@
 import base64
 import hashlib
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
-
-import cv2
-import numpy as np
-from playwright.sync_api import sync_playwright, Position
-
 import requests
 import json
 
+import cv2
+import numpy as np
+
+from playwright.sync_api import sync_playwright, Position
+from py_mini_racer import MiniRacer
+
 import ocr
-from utils import get_base_path, is_nuitka
+from utils import get_base_path, is_nuitka, is_bundle
 
 base_path = get_base_path()
 
@@ -323,31 +326,23 @@ def find_md5_collision(target_md5, prefix):
 
 
 def get_collect_and_eks(tdc):
-    """获取数据，每次调用创建新页面"""
-    playwright = sync_playwright().start()
+    ctx = MiniRacer()
 
-    browser = playwright.webkit.launch(headless=True)
+    with open(Path(base_path) / 'env.js', 'r', encoding='utf-8') as f:
+        ctx.eval(f.read())
 
-    browser_context = browser.new_context()
+    ctx.eval(tdc)
 
-    page = browser_context.new_page()
+    ctx.eval('window.TDC && "function" == typeof window.TDC.setData && window.TDC.setData("qf_7Pf__H")')
 
-    try:
-        result = page.evaluate(tdc + """
-() => {
-  return [
-    (window.TDC && "function" == typeof window.TDC.getData) ? window.TDC.getData(true) || "---" : "------",
-    (window.TDC && "function" == typeof window.TDC.getInfo) ? window.TDC.getInfo().info || "---" : "------",
-  ]
-}
-        """)
-        return result[0], result[1]
-    finally:
-        # 确保关闭
-        page.close()
-        browser_context.close()
-        browser.close()
-        playwright.stop()
+    tdc_data = ctx.eval(
+        '(window.TDC && "function" == typeof window.TDC.getData) ? window.TDC.getData(true) || "---" : "------"'
+    )
+
+    tdc_info = ctx.eval(
+        '(window.TDC && "function" == typeof window.TDC.getInfo) ? window.TDC.getInfo().info || "---" : "------"'
+    )
+    return tdc_data, tdc_info
 
 
 def build_verify_form(data, positions, old_verify=None):
@@ -448,6 +443,14 @@ def complete_captcha_browser(retry=10):
     verify = None
     try:
         with sync_playwright() as p:
+            if not Path(p.webkit.executable_path).exists():
+                if is_bundle():
+                    print('打包时缺少打包 Playwright Webkit')
+                    sys.exit(0)
+                print("Playwright Webkit 未安装，正在安装...")
+                subprocess.run(["playwright", "install", "webkit"], check=True)
+                print("Playwright WebKit 安装完成！")
+
             # 启动 WebKit 浏览器
             browser = p.webkit.launch(headless=True)
 

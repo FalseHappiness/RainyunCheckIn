@@ -3,12 +3,10 @@ import base64
 import json
 import os
 import signal
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
 import utils
 
 
@@ -157,7 +155,7 @@ def check_auth_file():
 
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.1.0
+雨云自动签到程序 v1.2.0
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
@@ -200,15 +198,6 @@ args = parser.parse_args()
 print_program_info()
 
 check_auth_file()
-
-with sync_playwright() as p:
-    if not Path(p.webkit.executable_path).exists():
-        if is_bundle:
-            print('打包时缺少打包 Playwright Webkit')
-            sys.exit(0)
-        print("Playwright Webkit 未安装，正在安装...")
-        subprocess.run(["playwright", "install", "webkit"], check=True)
-        print("Playwright WebKit 安装完成！")
 
 command = args.command
 
@@ -253,9 +242,9 @@ if command == 'check_in':
     print('签到结果: ' + ('签到成功' if result.get('code') == 200 else ''))
     json_print(result)
 elif command == 'web':
-    from web import app
+    import web
 
-    app.run(host='localhost', port=args.port, debug=False)
+    web.run_main(host='localhost', port=args.port, debug=False)
 elif command == 'status':
     import main
 

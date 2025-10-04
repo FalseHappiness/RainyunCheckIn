@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>雨云签到</title>
+    <script src="https://turing.captcha.qcloud.com/TCaptcha.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+        }
+
+        #buttons {
+            justify-content: center;
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+        }
+
+        #logs {
+            max-width: min(100%, 500px);
+            margin: auto;
+            overflow: auto visible;
+            padding: 10px;
+        }
+
+        #logs p {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+<div id="buttons">
+    <button onclick="check_in()">签到</button>
+    <button onclick="auto_check_in()">自动签到</button>
+    <button onclick="req_is_check_in()">检测签到状态</button>
+    <button onclick="clear_logs()">清除日志</button>
+</div>
+<div id="logs"></div>
+<script>
+  const log_container = document.getElementById('logs')
+
+  function log(msg) {
+    const p = document.createElement('p')
+    p.innerText = msg
+    if (log_container.children.length) {
+      log_container.append(document.createElement('hr'))
+    }
+    log_container.append(p)
+    console.log(...arguments)
+  }
+
+  function build_str(...strings) {
+    let text = ''
+    strings.forEach((str, index) => {
+      if (index) {
+        text += '\n'
+      }
+      if (typeof str === 'string') {
+        text += str
+      } else if (str instanceof Object) {
+        text += JSON.stringify(str, null, 2)
+      } else {
+        text += String(str)
+      }
+    })
+    return text
+  }
+
+  function clear_logs() {
+    log_container.innerHTML = ''
+  }
+
+  window.Captcha = new window.TencentCaptcha(
+    "2039519451",
+    data => {
+      if (0 === data.ret && data.randstr && data.ticket) {
+        console.log('验证码回调', data)
+        req_check_in(data.ticket, data.randstr)
+      }
+    }
+  );
+
+  function check_in() {
+    Captcha.show()
+    log('打开签到验证码')
+  }
+
+  async function auto_check_in() {
+    log('正在请求自动签到')
+    try {
+      const data = await (
+        await fetch("/auto_check_in?force=true", {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      ).json()
+      const succeed = data.code === 200
+      log(build_str('请求自动签到结果' + succeed ? ': 签到成功' : '', data), data)
+    } catch (e) {
+      log(build_str('请求自动签到错误', e), e)
+    }
+  }
+
+  async function req_check_in(ticket, randstr) {
+    log('发送签到请求')
+    try {
+      const data = await (await fetch("/check_in", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          "task_name": "每日签到",
+          "verifyCode": "",
+          "vticket": ticket,
+          "vrandstr": randstr
+        })
+      })).json()
+      const succeed = data.code === 200
+      log(build_str('请求签到结果' + succeed ? ': 签到成功' : '', data), data)
+    } catch (e) {
+      log(build_str('请求签到错误', e), e)
+    }
+  }
+
+  async function req_is_check_in() {
+    log('正在获取签到状态...')
+    try {
+      const data = await (await fetch("/is_check_in")).json();
+      if ('check_in' in data) {
+        if (data.check_in) {
+          log('获取到当前状态为：已签到')
+        } else {
+          log('获取到当前状态为：未签到')
+        }
+        return
+      }
+      log(build_str('获取签到状态失败', data), data)
+    } catch (e) {
+      log(build_str('获取签到状态失败', e), e)
+    }
+  }
+</script>
+</body>
+</html>

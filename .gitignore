@@ -1,0 +1,9 @@
+/venv/
+/upx-5.0.2-win64/
+/tests/
+/playwright/
+/dist/
+/build/
+/__pycache__/
+/.idea/
+/cookies.json

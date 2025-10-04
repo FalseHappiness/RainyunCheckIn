@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>TCaptcha</title>
+    <script src="https://turing.captcha.qcloud.com/TCaptcha.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+        }
+
+        #logs {
+            position: fixed;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+            word-break: break-all;
+        }
+
+        #logs p {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+<div id="logs"></div>
+<script>
+  const logs = document.getElementById('logs')
+
+  window.Captcha = new window.TencentCaptcha(
+    "2039519451",
+    data => {
+      if (0 === data.ret && data.randstr && data.ticket) {
+        console.log('验证码回调', data)
+        logs.innerText = "请复制以下内容并输入（仅可用一次，请尽快输入，过久请刷新重试）：\n" + btoa(JSON.stringify(data))
+      }
+    }
+  );
+
+  Captcha.show()
+</script>
+</body>
+</html>

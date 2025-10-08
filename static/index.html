@@ -33,6 +33,12 @@
 <body>
 <div id="buttons">
     <button onclick="check_in()">签到</button>
+    <label for="methodSelector">自动签到匹配方法：</label>
+    <select id="methodSelector">=
+        <option value="template">模板匹配</option>
+        <option value="brute">暴力匹配</option>
+        <option value="speed">速度匹配</option>
+    </select>
     <button onclick="auto_check_in()">自动签到</button>
     <button onclick="req_is_check_in()">检测签到状态</button>
     <button onclick="clear_logs()">清除日志</button>
@@ -40,6 +46,7 @@
 <div id="logs"></div>
 <script>
   const log_container = document.getElementById('logs')
+  const method_selector = document.getElementById('methodSelector')
 
   function log(msg) {
     const p = document.createElement('p')
@@ -91,7 +98,7 @@
     log('正在请求自动签到')
     try {
       const data = await (
-        await fetch("/auto_check_in?force=true", {
+        await fetch("/auto_check_in?force=true&method=" + method_selector.value, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

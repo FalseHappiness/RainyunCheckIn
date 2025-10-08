@@ -12,9 +12,10 @@ import cv2
 import numpy as np
 from queue import Queue
 
-from src.main import get_captcha_data as main_get_captcha_data, get_captcha_images as main_get_captcha_images, \
-    build_verify_form, COMMON_HEADERS
+from src.main import MainLogic
 from src.ICR import main as icr_main, convert_matches_to_positions, find_part_positions
+
+main_logic = MainLogic(None, {}, True)
 
 
 def bytes_to_cv_image(img_bytes):
@@ -318,8 +319,8 @@ class CaptchaTesterGUI:
     def get_captcha_data(self):
         """获取验证码数据"""
         try:
-            data = main_get_captcha_data()
-            bg_img, sprite_img = main_get_captcha_images(data)
+            data = main_logic.get_captcha_data()
+            bg_img, sprite_img = main_logic.get_captcha_images(data)
             return bg_img, sprite_img, data
         except Exception as e:
             self.log_message(f"获取验证码失败: {e}")
@@ -509,8 +510,8 @@ def auto_test(test_count, method):
         # 获取验证码
         # noinspection PyBroadException
         try:
-            data = main_get_captcha_data()
-            bg_img, sprite_img = main_get_captcha_images(data)
+            data = main_logic.get_captcha_data()
+            bg_img, sprite_img = main_logic.get_captcha_images(data)
         except:
             pass
 
@@ -527,12 +528,12 @@ def auto_test(test_count, method):
             is_correct = False
 
             try:
-                form_data = build_verify_form(data, positions)
+                form_data = main_logic.build_verify_form(data, positions)
 
                 response = requests.post(
                     'https://turing.captcha.qcloud.com/cap_union_new_verify',
                     data=form_data,
-                    headers=COMMON_HEADERS
+                    headers=main_logic.common_headers
                 )
                 response.raise_for_status()  # 检查请求是否成功
 

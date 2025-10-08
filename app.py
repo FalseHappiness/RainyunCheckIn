@@ -1,7 +1,6 @@
 import argparse
 import base64
 import json
-import os
 import signal
 import sys
 import time
@@ -98,14 +97,14 @@ def json_print(binary):
 
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.4.0
+雨云自动签到程序 v1.5.0
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
 
 parser = ChineseArgumentParser(
     formatter_class=ChineseHelpFormatter,
-    description="雨云自动签到程序 v1.4.0 https://github.com/FalseHappiness/RainyunCheckIn",
+    description="雨云自动签到程序 v1.5.0 https://github.com/FalseHappiness/RainyunCheckIn",
     epilog="示例: python app.py check_in --auto"
 )
 
@@ -135,7 +134,7 @@ parser.add_argument(
     type=str,
     default='template',
     choices=['template', 'brute', 'speed'],
-    help="匹配背景块与需选块的方法（命令为 check_in 且开启 自动签到模式 或命令为 web 时生效，默认为 template）"
+    help="匹配背景块与需选块的方法（命令为 check_in 且开启 自动签到模式 时生效，默认为 template）"
 )
 parser.add_argument(
     "-c", "--config",
@@ -155,12 +154,10 @@ config_path = (Path(utils.get_program_base_path()) / 'config.json').resolve()
 if args.config:
     config_path = Path(args.config).resolve()
 
-os.environ["CONFIG_PATH"] = str(config_path)
-
-os.environ["MATCH_METHOD"] = str(args.method)
-
 if command == 'check_in':
-    import src.main as main
+    from src.main import MainLogic
+
+    main = MainLogic(config_path)
 
     auto = args.auto
     print(f"执行{'自动' if auto else '手动'}签到")
@@ -182,7 +179,7 @@ if command == 'check_in':
     if auto:
         print('请等待执行自动签到')
         start_time = time.time()
-        result = main.auto_check_in(True)
+        result = main.auto_check_in(True, args.method)
         end_time = time.time()
         execution_time = end_time - start_time
         print(f"自动签到执行耗时: {execution_time:.4f} 秒")
@@ -203,9 +200,13 @@ if command == 'check_in':
 elif command == 'web':
     import src.web as web
 
-    web.run_main(host='localhost', port=args.port, debug=False)
+    web.config_path = config_path
+
+    web.run_main(host='localhost', port=args.port)
 elif command == 'status':
-    import src.main as main
+    from src.main import MainLogic
+
+    main = MainLogic(config_path)
 
     print('检测签到状态...')
     status = main.get_check_in_status()

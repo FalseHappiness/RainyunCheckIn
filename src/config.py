@@ -1,12 +1,17 @@
 import os
 import json
-import sys
 from typing import Dict, Any, Optional, Union
 
 
+class ConfigError(Exception):
+    """自定义配置错误异常"""
+    pass
+
+
 class Config:
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str | None = "config.json", api_config_data: Optional[Dict[str, Any]] = None):
         self.config_path = config_path
+        self.api_config_data = api_config_data
         self.config: Dict[str, Any] = {}
         self._load_config()
 
@@ -24,9 +29,20 @@ class Config:
 
     def _load_config(self):
         """加载配置文件"""
+        # 优先使用api_config_data中的配置
+        if self.api_config_data is not None:
+            file_config = self._load_file_config() if self.config_path else {}
+            self.config = self._deep_merge_configs(file_config, self.api_config_data)
+            return
+
+        # 如果没有api_config_data，则只使用文件配置
+        self.config = self._load_file_config()
+
+    def _load_file_config(self) -> Dict[str, Any]:
+        """从文件加载配置"""
         if not os.path.exists(self.config_path):
             # 创建默认配置文件
-            self.config = {
+            default_config = {
                 "auth": {
                     "dev-code": "",
                     "rain-session": "",
@@ -34,32 +50,84 @@ class Config:
                 },
                 "headers": {}
             }
-            self._save_config()
-            print(f"{self.config_path} 文件已创建，请按照文档说明填写 x-api-key 或填写 dev-code 和 rain-session")
-            sys.exit(0)
+            try:
+                with open(self.config_path, 'w', encoding='utf-8') as f:
+                    json.dump(default_config, f, indent=4, ensure_ascii=False)
+            except Exception as e:
+                raise ConfigError(f"无法创建默认配置文件 {self.config_path} - {str(e)}")
+
+            raise ConfigError(
+                f"{self.config_path} 文件已创建，请按照文档说明填写 x-api-key 或填写 dev-code 和 rain-session"
+            )
 
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config = json.load(f)
+                return json.load(f)
         except json.JSONDecodeError:
-            print(f"错误: {self.config_path} 文件不是有效的 JSON 格式")
-            sys.exit(1)
+            raise ConfigError(f"{self.config_path} 文件不是有效的 JSON 格式")
         except Exception as e:
-            print(f"错误: 读取 {self.config_path} 时发生意外错误 - {str(e)}")
-            sys.exit(1)
+            raise ConfigError(f"读取 {self.config_path} 时发生意外错误 - {str(e)}")
+
+    def _deep_merge_configs(self, base: Dict[str, Any], override: Dict[str, Any], primary=True) -> Dict[str, Any]:
+        """深度合并两个配置字典"""
+        result = base.copy()
+
+        # 特殊处理auth部分
+        if "auth" in override and primary:
+            result["auth"] = override["auth"].copy()
+
+        # 合并其他部分
+        for key, value in override.items():
+            if key == "auth" and primary:
+                continue
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge_configs(base[key], value, False)
+            else:
+                result[key] = value
+        return result
+
+    def _save_auth_only(self):
+        """只保存auth部分到配置文件"""
+        if self.api_config_data is not None and "auth" in self.api_config_data:
+            return  # 如果auth来自api_config_data，则不保存到文件
+
+        try:
+            # 读取现有配置
+            existing_config = {}
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    existing_config = json.load(f)
+
+            # 只更新auth部分
+            existing_config["auth"] = self.config["auth"]
+
+            # 保存
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(existing_config, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            raise ConfigError(f"无法保存 {self.config_path} 文件 - {str(e)}")
 
     def _save_config(self):
-        """保存配置文件"""
+        """保存整个配置文件"""
+        if not self.config_path:
+            return
+
+        if self.api_config_data is not None:
+            self._save_auth_only()
+            return  # 如果使用api_config_data，则不保存到文件
+
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            print(f"错误: 无法保存 {self.config_path} 文件 - {str(e)}")
-            sys.exit(1)
+            raise ConfigError(f"无法保存 {self.config_path} 文件 - {str(e)}")
 
     def _validate_auth(self):
         """验证auth配置是否有效"""
         auth = self.config.get("auth", {})
+
+        if not isinstance(auth, dict):
+            raise ConfigError("配置文件 auth 字段值需要为对象格式")
 
         has_api_key = 'x-api-key' in auth and auth['x-api-key']
         has_dev_and_rain = all(
@@ -67,15 +135,18 @@ class Config:
         )
 
         if not has_api_key and not has_dev_and_rain:
-            # 如果都没有，则打印详细的错误信息
+            error_msgs = []
             if 'x-api-key' not in auth or not auth['x-api-key']:
-                print(f"{self.config_path} 错误: 'x-api-key' 字段缺失或为空")
+                error_msgs.append(f"'x-api-key' 字段缺失或为空")
             if 'dev-code' not in auth or not auth['dev-code']:
-                print(f"{self.config_path} 错误: 'dev-code' 字段缺失或为空")
+                error_msgs.append(f"'dev-code' 字段缺失或为空")
             if 'rain-session' not in auth or not auth['rain-session']:
-                print(f"{self.config_path} 错误: 'rain-session' 字段缺失或为空")
-            print("提示: 必须提供有效的 'x-api-key' 或 ('dev-code' 和 'rain-session')")
-            sys.exit(1)
+                error_msgs.append(f"'rain-session' 字段缺失或为空")
+
+            raise ConfigError(
+                f"认证配置无效: {', '.join(error_msgs)}. "
+                "必须提供有效的 'x-api-key' 或 ('dev-code' 和 'rain-session')"
+            )
 
     def load_header_auth(self, headers: Dict[str, str], boolean: bool = False) -> Union[Dict[str, str], bool]:
         """加载认证信息到请求头"""
@@ -129,35 +200,35 @@ class Config:
                             key, value = item.split(":", 1)
                             headers_dict[key.strip()] = value.strip()
                         else:
-                            print(f"警告: 忽略无效的header字符串格式 '{item}'，应有 'Header: value' 格式")
+                            print(f"警告: 忽略无效的 header 字符串格式 '{item}'，应有 'Header-Name: value' 格式")
                             continue
-                    # 处理字典格式 {"name": "Header", "value": "value"}
+                    # 处理字典格式 {"name": "Header-Name", "value": "value"}
                     elif isinstance(item, dict) and 'name' in item and 'value' in item:
                         headers_dict[item['name']] = item['value']
-                    # 处理元组/列表格式 ["Header", "value"]
+                    # 处理元组/列表格式 ["Header-Name", "value"]
                     elif isinstance(item, (tuple, list)) and len(item) == 2:
                         headers_dict[item[0]] = item[1]
                     else:
-                        print(f"警告: 忽略无法识别的header格式 {item}")
+                        print(f"警告: 忽略无法识别的 header 格式 {item}")
                         continue
 
                 self.config["headers"] = headers_dict
                 headers = headers_dict
-                if headers_dict:  # 只在确实转换了内容时显示提示
-                    print("提示: headers 已从列表格式自动转换为字典格式")
+                # if headers_dict:  # 只在确实转换了内容时显示提示
+                #     print("提示: headers 已从列表格式自动转换为对象格式")
             except Exception as e:
-                print(f"错误: 无法将headers列表转换为字典 - {str(e)}")
-                sys.exit(1)
+                raise ConfigError(f"无法将 headers 数组转换为对象 - {str(e)}")
 
         # 验证headers是否为字典
         if not isinstance(headers, dict):
-            print("错误: config中的headers配置必须是一个字典或可转换为字典的列表")
-            print("提示: 可接受的headers格式:")
-            print('1. 字典格式: {"Header-Name": "value"}')
-            print('2. 字典列表: [{"name": "Header-Name", "value": "value"}, ...]')
-            print('3. 键值对列表: [["Header-Name", "value"], ...]')
-            print('4. 字符串列表: ["Header-Name: value", ...]')
-            sys.exit(1)
+            raise ConfigError(
+                "config中的headers配置必须是一个对象或可转换为对象的数组\n"
+                "提示: 可接受的headers格式:\n"
+                '1. 对象格式: {"Header-Name": "value", ...}\n'
+                '2. 对象数组: [{"name": "Header-Name", "value": "value"}, ...]\n'
+                '3. 键值对数组: [["Header-Name", "value"], ...]\n'
+                '4. 字符串数组: ["Header-Name: value", ...]'
+            )
 
     def get(self, key: str, default: Optional[Any] = None) -> Any:
         """获取配置值"""

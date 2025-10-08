@@ -1,6 +1,6 @@
 # Rainyun Check-In
 
-一个自动签到雨云的 Python 脚本，支持命令行和网页界面操作。
+一个自动签到雨云的 Python 脚本，支持命令行、API 和网页界面操作。
 
 此脚本仅作为学习交流使用。
 
@@ -74,6 +74,8 @@ python app.py [命令]
 ### 配置凭据
 
 配置凭据登录雨云账号
+
+如果启动命令为 web，可不用配置，但要在调用 API 时传入
 
 #### 方法一：使用 API 密钥（推荐）
 
@@ -173,7 +175,7 @@ python app.py [命令]
   -f, --force           是否跳过签到状态检测（命令为 check_in 时生效，默认关闭）
   -p PORT, --port PORT  网页端口（命令为 web 时生效，默认为 31278）
   -m {template,brute,speed}, --method {template,brute,speed}
-                        匹配背景块与需选块的方法（命令为 check_in 且开启 自动签到模式 或命令为 web 时生效，默认为 template）
+                        匹配背景块与需选块的方法（命令为 check_in 且开启 自动签到模式 时生效，默认为 template）
   -c CONFIG, --config CONFIG
                         设置 config 文件路径，默认为程序同目录 config.json
 
@@ -182,7 +184,9 @@ python app.py [命令]
 
 ### 网页模式
 
-运行以下命令启动网页界面
+运行以下命令启动网页界面和 API 接口
+
+[API 接口文档](https://rainyun-check-in.apifox.cn/)
 
 ```bash
 python app.py web

@@ -17,8 +17,8 @@ python -m nuitka --standalone ^
                  --output-filename="RainyunCheckIn.exe" ^
                  --company-name="FalseHappiness" ^
                  --product-name="RainyunCheckIn" ^
-                 --file-version="1.5.0" ^
-                 --product-version="1.5.0" ^
+                 --file-version="1.5.1" ^
+                 --product-version="1.5.1" ^
                  --file-description="雨云自动签到程序 https://github.com/FalseHappiness/RainyunCheckIn" ^
                  --copyright="Copyright © 2025 FalseHappiness" ^
                  --enable-plugin=no-qt ^

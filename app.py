@@ -97,14 +97,14 @@ def json_print(binary):
 
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.5.0
+雨云自动签到程序 v1.5.1
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
 
 parser = ChineseArgumentParser(
     formatter_class=ChineseHelpFormatter,
-    description="雨云自动签到程序 v1.5.0 https://github.com/FalseHappiness/RainyunCheckIn",
+    description="雨云自动签到程序 v1.5.1 https://github.com/FalseHappiness/RainyunCheckIn",
     epilog="示例: python app.py check_in --auto"
 )
 

@@ -93,7 +93,7 @@ class MainLogic:
         pass
 
     # 获取CSRF token的函数
-    def get_csrf_token(self, ):
+    def get_csrf_token(self):
         cookies = self.config.load_cookies_auth()
         url = "https://api.v2.rainyun.com/user/csrf"
 
@@ -102,11 +102,24 @@ class MainLogic:
                                     timeout=10)
             cookies = self.config.update_cookies_from_response(response, cookies)
 
-            if response.status_code == 200:
-                return response.json().get('data'), cookies
-            return None, cookies
-        except requests.exceptions.RequestException:
-            return None, cookies
+            if response.status_code != 200:
+                try:
+                    return {
+                        "error": f"获取 CSRF 令牌 {response.status_code} 错误：{json.dumps(response.json(), ensure_ascii=False)}"
+                    }, cookies
+                except json.decoder.JSONDecodeError:
+                    response.raise_for_status()
+
+            result = response.json()
+
+            if 'data' in result:
+                return result.get('data'), cookies
+
+            return {
+                "error": "获取 CSRF 令牌错误：返回内容未包含 CSRF：" + json.dumps(result, ensure_ascii=False)
+            }, cookies
+        except (requests.exceptions.HTTPError, requests.exceptions.RequestException, json.decoder.JSONDecodeError) as e:
+            return {"error": f"获取 CSRF 令牌错误：{str(e)}"}, cookies
 
     def check_in(self, data):
         if not isinstance(data, dict):
@@ -121,8 +134,8 @@ class MainLogic:
 
         # 获取CSRF token并更新cookies
         csrf_token, cookies = self.get_csrf_token()
-        if csrf_token is None:
-            return {'error': '无法获取 CSRF 令牌。可能已经退出登录。'}
+        if not isinstance(csrf_token, str):
+            return csrf_token if isinstance(csrf_token, dict) else {'error': '无法获取 CSRF 令牌。可能已经退出登录。'}
 
         # 准备请求头
         headers = self.config.load_header_auth(self.common_headers)
@@ -167,8 +180,8 @@ class MainLogic:
     def get_check_in_status(self):
         # 获取CSRF token并更新cookies
         csrf_token, cookies = self.get_csrf_token()
-        if csrf_token is None:
-            return {'error': '无法获取 CSRF 令牌。可能已经退出登录。'}
+        if not isinstance(csrf_token, str):
+            return csrf_token if isinstance(csrf_token, dict) else {'error': '无法获取 CSRF 令牌。可能已经退出登录。'}
 
         # 准备请求头
         headers = self.config.load_header_auth(self.common_headers)

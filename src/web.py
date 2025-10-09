@@ -29,7 +29,7 @@ from src.main import MainLogic
 app = FastAPI(
     title="RainyunCheckIn API",
     description="雨云自动签到 API 接口",
-    version="1.5.0",
+    version="1.5.1",
     terms_of_service="https://github.com/FalseHappiness/RainyunCheckIn",
     license_info={
         "name": "MIT",

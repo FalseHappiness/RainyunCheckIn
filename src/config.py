@@ -148,8 +148,10 @@ class Config:
                 "必须提供有效的 'x-api-key' 或 ('dev-code' 和 'rain-session')"
             )
 
-    def load_header_auth(self, headers: Dict[str, str], boolean: bool = False) -> Union[Dict[str, str], bool]:
+    def load_header_auth(self, headers: Dict[str, str] = None, boolean: bool = False) -> Union[Dict[str, str], bool]:
         """加载认证信息到请求头"""
+        if headers is None:
+            headers = {}
         headers = headers.copy()
         auth = self.config.get("auth", {})
         key = auth.get('x-api-key', None)

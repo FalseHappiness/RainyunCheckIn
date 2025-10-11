@@ -23,13 +23,14 @@ if __name__ == '__main__':
 
 from src.ICR import find_part_positions, main as icr_main
 from src.utils import get_base_path
+from src.version import PROGRAM_VERSION
 
 from src.main import MainLogic
 
 app = FastAPI(
     title="RainyunCheckIn API",
     description="雨云自动签到 API 接口",
-    version="1.5.1",
+    version=PROGRAM_VERSION,
     terms_of_service="https://github.com/FalseHappiness/RainyunCheckIn",
     license_info={
         "name": "MIT",
@@ -116,36 +117,38 @@ async def parse_params(request: Request) -> Dict[str, Any]:
 
 
 # 解析从 API 传入的配置数据
-async def parse_api_config(request: Request, params: Optional[dict] = None) -> dict:
+async def parse_api_config(request: Request, params: Optional[dict] = None, no_need_auth: bool = False) -> dict:
     def raise_error(e):
         raise HTTPException(status_code=200, detail=make_err(e))
 
     params = params or await parse_params(request)
 
     data = {}
-    params_auth = params.get('auth', None)
-    if params_auth is not None:
-        if not isinstance(params_auth, dict):
-            raise_error("参数错误：auth 必须是对象")
-        data['auth'] = params_auth
 
-    auth = {}
-    x_api_key = params.get('x_api_key', None) or params.get('x-api-key', None)
-    if x_api_key is not None:
-        if not x_api_key:
-            raise_error("参数错误：x_api_key 如果传入，则不能为空")
-        auth['x-api-key'] = x_api_key
+    if not no_need_auth:
+        params_auth = params.get('auth', None)
+        if params_auth is not None:
+            if not isinstance(params_auth, dict):
+                raise_error("参数错误：auth 必须是对象")
+            data['auth'] = params_auth
 
-    rain_session = params.get('rain_session', None) or params.get('rain-session', None)
-    dev_code = params.get('dev_code', None) or params.get('dev-code', None)
-    if rain_session is not None or dev_code is not None:
-        if not rain_session or not dev_code:
-            raise_error("参数错误：rain_session、dev_code 如果要提供，必须同时提供且不能为空")
-        auth['rain-session'] = rain_session
-        auth['dev-code'] = dev_code
+        auth = {}
+        x_api_key = params.get('x_api_key', None) or params.get('x-api-key', None)
+        if x_api_key is not None:
+            if not x_api_key:
+                raise_error("参数错误：x_api_key 如果传入，则不能为空")
+            auth['x-api-key'] = x_api_key
 
-    if auth:
-        data['auth'] = auth
+        rain_session = params.get('rain_session', None) or params.get('rain-session', None)
+        dev_code = params.get('dev_code', None) or params.get('dev-code', None)
+        if rain_session is not None or dev_code is not None:
+            if not rain_session or not dev_code:
+                raise_error("参数错误：rain_session、dev_code 如果要提供，必须同时提供且不能为空")
+            auth['rain-session'] = rain_session
+            auth['dev-code'] = dev_code
+
+        if auth:
+            data['auth'] = auth
 
     params_headers = params.get('headers', None)
     if params_headers is not None:
@@ -167,7 +170,7 @@ async def parse_main_logic(request: Request) -> MainLogic:
 # 解析无需认证的主逻辑类
 async def parse_na_main(request: Request):
     params = await parse_params(request)
-    main = MainLogic(config_path, params, no_need_auth=True)
+    main = MainLogic(config_path, await parse_api_config(request, params=params, no_need_auth=True), no_need_auth=True)
     aid = params.get('aid', None)
     if aid is not None:
         aid = str(aid)

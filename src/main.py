@@ -2,6 +2,7 @@ import base64
 import hashlib
 
 import time
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 import requests
@@ -112,7 +113,7 @@ class MainLogic:
 
             result = response.json()
 
-            if 'data' in result:
+            if 'data' in result and isinstance(result['data'], str):
                 return result.get('data'), cookies
 
             return {
@@ -135,7 +136,7 @@ class MainLogic:
         # 获取CSRF token并更新cookies
         csrf_token, cookies = self.get_csrf_token()
         if not isinstance(csrf_token, str):
-            return csrf_token if isinstance(csrf_token, dict) else {'error': '无法获取 CSRF 令牌。可能已经退出登录。'}
+            return csrf_token
 
         # 准备请求头
         headers = self.config.load_header_auth(self.common_headers)
@@ -181,7 +182,7 @@ class MainLogic:
         # 获取CSRF token并更新cookies
         csrf_token, cookies = self.get_csrf_token()
         if not isinstance(csrf_token, str):
-            return csrf_token if isinstance(csrf_token, dict) else {'error': '无法获取 CSRF 令牌。可能已经退出登录。'}
+            return csrf_token
 
         # 准备请求头
         headers = self.config.load_header_auth(self.common_headers)
@@ -208,7 +209,17 @@ class MainLogic:
                     if task.get('Name') == '每日签到' and task.get('Status') == 2:
                         return {'check_in': True}
                 return {'check_in': False}
-            return {'error': 'Failed to get tasks', 'code': response.status_code}
+
+            data = None
+            try:
+                data = response.json()
+            except JSONDecodeError:
+                pass
+
+            return {
+                'error': f"无法检测签到状态{(': ' + json.dumps(data, ensure_ascii=False)) if data else '。'}",
+                'code': response.status_code
+            }
         except requests.exceptions.RequestException as e:
             return {'error': str(e)}
 
@@ -363,9 +374,8 @@ class MainLogic:
 
                     data = self.refresh_captcha_data(data)
 
-                    if data.get('error'):
-                        return {'error': '刷新验证码失败。'}
-
                     bg_img, sprite_img = self.get_captcha_images(data)
+                else:
+                    return {'error': f"超出重试次数。最后认证结果: {json.dumps(result, ensure_ascii=False)}"}
 
-        return {'error': '超出重试次数。'}
+        return {'error': "超出重试次数。"}

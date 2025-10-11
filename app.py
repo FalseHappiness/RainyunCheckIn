@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import src.utils as utils
+from src.version import PROGRAM_VERSION
 
 
 def handle_exit(_, __):
@@ -97,14 +98,14 @@ def json_print(binary):
 
 def print_program_info():
     print(f"""{'=' * 18}
-雨云自动签到程序 v1.5.1
+雨云自动签到程序 v{PROGRAM_VERSION}
 https://github.com/FalseHappiness/RainyunCheckIn
 {'=' * 18}""")
 
 
 parser = ChineseArgumentParser(
     formatter_class=ChineseHelpFormatter,
-    description="雨云自动签到程序 v1.5.1 https://github.com/FalseHappiness/RainyunCheckIn",
+    description=f"雨云自动签到程序 v{PROGRAM_VERSION} https://github.com/FalseHappiness/RainyunCheckIn",
     epilog="示例: python app.py check_in --auto"
 )
 

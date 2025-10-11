@@ -280,11 +280,12 @@ python app.py check_in -a --config C:/path/to/config.json
 
 - `app.py` - 程序入口和命令行接口
 - `detect_accuracy.py` - 验证码识别准确率检测
-- `build.bat` - 构建可执行文件的脚本
+- `build.py` - 构建可执行文件的脚本
 - `src/main.py` - 主要逻辑实现
 - `src/web.py` - 网页支持功能
 - `src/ICR.py` - 交互式验证码识别（Interactive CAPTCHA Recognition）模块
 - `src/utils.py` - 实用工具
+- `src/version.py` - 版本信息
 - `static/index.html` - 网页主页面
 - `static/captcha.html` - 签到页面
 - `static/env.js` - 补充 NodeJS 环境

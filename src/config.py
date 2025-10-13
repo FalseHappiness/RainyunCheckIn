@@ -124,68 +124,42 @@ class Config:
 
     def _validate_auth(self):
         """验证auth配置是否有效"""
-        auth = self.config.get("auth", {})
+        auth_list = self.config.get("auth", {})
 
-        if not isinstance(auth, dict):
-            raise ConfigError("配置文件 auth 字段值需要为对象格式")
+        multi = True
 
-        has_api_key = 'x-api-key' in auth and auth['x-api-key']
-        has_dev_and_rain = all(
-            field in auth and auth[field] for field in ['dev-code', 'rain-session']
-        )
+        if not isinstance(auth_list, list):
+            multi = False
+            auth_list = [auth_list]
 
-        if not has_api_key and not has_dev_and_rain:
-            error_msgs = []
-            if 'x-api-key' not in auth or not auth['x-api-key']:
-                error_msgs.append(f"'x-api-key' 字段缺失或为空")
-            if 'dev-code' not in auth or not auth['dev-code']:
-                error_msgs.append(f"'dev-code' 字段缺失或为空")
-            if 'rain-session' not in auth or not auth['rain-session']:
-                error_msgs.append(f"'rain-session' 字段缺失或为空")
+        for i, auth in enumerate(auth_list):
+            if not isinstance(auth, dict):
+                raise ConfigError(f"配置文件 auth {f'数组第 {i + 1} 项' if multi else '字段值'}需要为对象格式")
 
-            raise ConfigError(
-                f"认证配置无效: {', '.join(error_msgs)}. "
-                "必须提供有效的 'x-api-key' 或 ('dev-code' 和 'rain-session')"
+            has_api_key = 'x-api-key' in auth and auth['x-api-key']
+            has_dev_and_rain = all(
+                field in auth and auth[field] for field in ['dev-code', 'rain-session']
             )
 
-    def load_header_auth(self, headers: Dict[str, str] = None, boolean: bool = False) -> Union[Dict[str, str], bool]:
-        """加载认证信息到请求头"""
-        if headers is None:
-            headers = {}
-        headers = headers.copy()
-        auth = self.config.get("auth", {})
-        key = auth.get('x-api-key', None)
-        dev_token = auth.get('dev-code', None)
+            if not has_api_key and not has_dev_and_rain:
+                error_msgs = []
+                if auth.get('x-api-key', None):
+                    error_msgs.append(f"'x-api-key' 字段缺失或为空")
+                if auth.get('dev-code', None):
+                    error_msgs.append(f"'dev-code' 字段缺失或为空")
+                if auth.get('rain-session', None):
+                    error_msgs.append(f"'rain-session' 字段缺失或为空")
 
-        if key:
-            headers['x-api-key'] = str(key)
-            if dev_token:
-                headers['rain-dev-token'] = str(dev_token)
-            return True if boolean else headers
+                auth_name = str(auth.get('name', ''))
+                auth_display_name = f"{auth_name}({i + 1})" if auth_name else i + 1
 
-        return False if boolean else headers
+                raise ConfigError(
+                    f"认证配置{f' {auth_display_name} ' if multi else ''}无效: {', '.join(error_msgs)}. "
+                    "必须提供有效的 'x-api-key' 或提供有效的 'dev-code' 和 'rain-session'"
+                )
 
-    def load_cookies_auth(self) -> Dict[str, str]:
-        """加载cookie认证信息"""
-        if self.load_header_auth({}, True):
-            return {}
-        return self.config.get("auth", {}).copy()
-
-    def save_cookies_auth(self, cookies: Dict[str, str]):
-        """保存cookie认证信息"""
-        auth = self.config.get("auth", {})
-        auth.update(cookies)
-        self.config["auth"] = auth
-        self._save_config()
-
-    def update_cookies_from_response(self, response, current_cookies: Dict[str, str]) -> Dict[str, str]:
-        """从响应中更新cookie"""
-        if 'set-cookie' in response.headers:
-            new_cookies = current_cookies.copy()
-            new_cookies.update(response.cookies.get_dict())
-            self.save_cookies_auth(new_cookies)
-            return new_cookies
-        return current_cookies
+    def save_auth(self, auth):
+        self.set('auth', auth)
 
     def _validate_headers(self):
         """验证headers配置是否有效"""
@@ -214,7 +188,6 @@ class Config:
                         print(f"警告: 忽略无法识别的 header 格式 {item}")
                         continue
 
-                self.config["headers"] = headers_dict
                 headers = headers_dict
                 # if headers_dict:  # 只在确实转换了内容时显示提示
                 #     print("提示: headers 已从列表格式自动转换为对象格式")
@@ -231,6 +204,14 @@ class Config:
                 '3. 键值对数组: [["Header-Name", "value"], ...]\n'
                 '4. 字符串数组: ["Header-Name: value", ...]'
             )
+
+        return headers
+
+    def get_headers(self):
+        try:
+            return self._validate_headers()
+        except ConfigError:
+            return {}
 
     def get(self, key: str, default: Optional[Any] = None) -> Any:
         """获取配置值"""

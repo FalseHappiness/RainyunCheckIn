@@ -1,12 +1,14 @@
 import argparse
 import base64
-import json
+import binascii
 import signal
 import sys
 import time
 from pathlib import Path
 
 import src.utils as utils
+from src.auth_process import AuthProcess
+from src.utils import json_parse
 from src.version import PROGRAM_VERSION
 
 
@@ -93,7 +95,7 @@ class ChineseArgumentParser(argparse.ArgumentParser):
 
 
 def json_print(binary):
-    print(json.dumps(binary, indent=2, ensure_ascii=False))
+    print(utils.json_stringify(binary, indent=2))
 
 
 def print_program_info():
@@ -156,48 +158,64 @@ if args.config:
     config_path = Path(args.config).resolve()
 
 if command == 'check_in':
-    from src.main import MainLogic
+    from src.main import MainLogic, check_in, get_check_in_status
 
     main = MainLogic(config_path)
 
     auto = args.auto
     print(f"执行{'自动' if auto else '手动'}签到")
 
-    if args.force:
-        print('跳过签到状态检测')
-    else:
-        print('进行签到状态检测')
-        status = main.get_check_in_status()
-        if 'check_in' in status:
-            if status.get('check_in'):
-                print('已签到')
-                sys.exit(0)
-            else:
-                print('未签到')
+    auth_process = AuthProcess(main.config, main.common_headers)
+
+    for auth_info in auth_process.enumerate():
+        name = auth_info.name
+        if auth_process.multi:
+            print(f"=== 执行 {name} ===")
+
+        if auth_info.error:
+            print("错误")
+            json_print(auth_info.error)
         else:
-            print('签到状态检测失败')
-            json_print(status)
-    if auto:
-        print('请等待执行自动签到')
-        start_time = time.time()
-        result = main.auto_check_in(True, args.method)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print(f"自动签到执行耗时: {execution_time:.4f} 秒")
-    else:
-        captcha = None
-        while True:
-            try:
-                text = f"请打开 {Path(base_path) / 'static' / 'captcha.html'} 完成验证码，并输入显示的 Base64 验证码: " if captcha is None else "验证码错误，请重新输入: "
-                captcha = json.loads(base64.b64decode(input(text)))
-                if captcha.get('randstr') or captcha.get('ticket'):
-                    break
-            except json.JSONDecodeError:
-                pass
-            captcha = ''
-        result = main.check_in(captcha)
-    print('签到结果: ' + ('签到成功' if result.get('code') == 200 else ''))
-    json_print(result)
+            if args.force:
+                print('跳过签到状态检测')
+            else:
+                print('进行签到状态检测...')
+                status = get_check_in_status(auth_info)
+                if 'check_in' in status:
+                    if status.get('check_in'):
+                        print('已签到')
+                        if auth_process.multi:
+                            print()
+                        continue
+                    else:
+                        print('未签到')
+                else:
+                    print('签到状态检测失败')
+                    json_print(status)
+            if auto:
+                print('请等待执行自动签到')
+                start_time = time.time()
+                result = main.auto_check_in(auth_info, True, args.method)
+                end_time = time.time()
+                execution_time = end_time - start_time
+                print(f"自动签到执行耗时: {execution_time:.4f} 秒")
+            else:
+                captcha = None
+                while True:
+                    try:
+                        text = f"请打开 {Path(base_path) / 'static' / 'captcha.html'} 完成验证码，并输入显示的 Base64 验证码: " if captcha is None else "验证码错误，请重新输入: "
+                        captcha = json_parse(base64.b64decode(input(text)), else_none=True) or {}
+                        if captcha.get('randstr') or captcha.get('ticket'):
+                            break
+                    except binascii.Error:
+                        pass
+                    captcha = ''
+                result = check_in(captcha, auth_info)
+            print('签到结果: ' + ('签到成功' if result.get('code') == 200 else ''))
+            json_print(result)
+
+        if auth_process.multi:
+            print()
 elif command == 'web':
     import src.web as web
 
@@ -205,17 +223,21 @@ elif command == 'web':
 
     web.run_main(host='localhost', port=args.port)
 elif command == 'status':
-    from src.main import MainLogic
+    from src.main import MainLogic, get_check_in_status
 
     main = MainLogic(config_path)
 
+    auth_process = AuthProcess(main.config, main.common_headers)
+
     print('检测签到状态...')
-    status = main.get_check_in_status()
-    if 'check_in' in status:
-        if status.get('check_in'):
-            print('已签到')
+    for auth_info in auth_process.enumerate():
+        name = f"{auth_info.name}: " if auth_process.multi else ''
+        status = get_check_in_status(auth_info)
+        if 'check_in' in status:
+            if status.get('check_in'):
+                print(f"{name}已签到")
+            else:
+                print(f"{name}未签到")
         else:
-            print('未签到')
-    else:
-        print('签到状态检测失败')
-        json_print(status)
+            print(f"{name}签到状态检测失败")
+            json_print(status)

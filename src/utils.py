@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -21,3 +22,17 @@ def get_base_path():
 
 def get_program_base_path():
     return Path(sys.argv[0]).absolute().parent
+
+
+def json_parse(json_str, else_none=True):
+    data = None if else_none else json_str
+    try:
+        if isinstance(json_str, (str, bytes, bytearray)):
+            data = json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+    return data
+
+
+def json_stringify(var, **args):
+    return json.dumps(var, ensure_ascii=False, **args)

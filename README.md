@@ -95,7 +95,7 @@ python app.py [命令]
 2. 打开 [总览 → 用户 → 账户设置 → API 密钥](https://app.rainyun.com/account/settings/api-key)
 3. 复制 `API 密钥` 或者 `重新生成` 一个，并保存到 `config.json`
 
-#### 方法二：使用 Cookies
+#### 方法二：使用 Cookies （不建议使用）
 
 按照以下格式填写你的雨云 Cookies 信息：
 
@@ -117,6 +117,26 @@ python app.py [命令]
 5. 复制名称为 `dev-code` 和 `rain-session` 的值并保存到 `config.json`
 
 > ⚠️ **警告**: 不要把 `config.json` 分享给其他人，否则其他人可以直接操作你的雨云账号！
+
+#### 配置多个凭据
+
+类似以下格式即可
+
+```json
+{
+  "auth": [
+    {
+      "x-api-key": "API Key",
+      "name": "配置1（昵称，仅用于辨别配置）"
+    },
+    {
+      "dev-code": "Dev code",
+      "rain-session": "Rain session",
+      "name": "配置2"
+    }
+  ]
+}
+```
 
 ### 配置请求头（可选）
 

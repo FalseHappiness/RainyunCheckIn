@@ -6,13 +6,13 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 import requests
-import json
 
 from py_mini_racer import MiniRacer
 
 from src.ICR import find_part_positions
+from src.auth_process import AuthInfo, AuthProcess
 from src.config import Config
-from src.utils import get_base_path
+from src.utils import get_base_path, json_parse, json_stringify
 
 base_path = get_base_path()
 
@@ -57,6 +57,83 @@ def find_md5_collision(target_md5, prefix):
             return prefix, int((time.time() - start_time) * 1000)
 
 
+def check_in(data, auth_info):
+    if not isinstance(data, dict):
+        return {'error': '未提供数据，或格式不正确。'}
+
+    if not isinstance(auth_info, AuthInfo):
+        return {'error': '未提供认证信息。'}
+
+    if auth_info.error:
+        return auth_info.error
+
+    data = {
+        "task_name": "每日签到",
+        "verifyCode": "",
+        "vticket": data.get('ticket', None) or data.get('vticket', None),
+        "vrandstr": data.get('randstr', None) or data.get('vrandstr', None)
+    }
+
+    try:
+        # 转发请求到目标API
+        response = requests.post(
+            "https://api.v2.rainyun.com/user/reward/tasks",
+            headers=auth_info.headers,
+            cookies=auth_info.cookies,
+            json=data,
+            timeout=10
+        )
+
+        # 更新cookie
+        auth_info.update_cookies(response)
+
+        # 返回API的响应
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {'error': str(e)}
+
+
+def get_check_in_status(auth_info):
+    if not isinstance(auth_info, AuthInfo):
+        return {'error': '未提供认证信息。'}
+
+    if auth_info.error:
+        return auth_info.error
+
+    try:
+        # 获取任务列表
+        response = requests.get(
+            "https://api.v2.rainyun.com/user/reward/tasks",
+            headers=auth_info.headers,
+            cookies=auth_info.cookies,
+            timeout=10
+        )
+
+        # 更新cookie
+        auth_info.update_cookies(response)
+
+        if response.status_code == 200:
+            data = response.json()
+            tasks = data.get('data', [])
+            for task in tasks:
+                if task.get('Name') == '每日签到' and task.get('Status') == 2:
+                    return {'check_in': True}
+            return {'check_in': False}
+
+        data = None
+        try:
+            data = response.json()
+        except JSONDecodeError:
+            pass
+
+        return {
+            'error': f"无法检测签到状态{(': ' + json_stringify(data)) if data else '。'}",
+            'code': response.status_code
+        }
+    except requests.exceptions.RequestException as e:
+        return {'error': str(e)}
+
+
 class MainLogic:
     def __init__(self, config_path='config.json', config_data=None, no_need_auth=False):
         # 公共请求头
@@ -90,138 +167,97 @@ class MainLogic:
 
         self.config = Config(config_path, config_data)
 
-        self.common_headers = self.common_headers | self.config.get('headers', {})
-        pass
+        self.common_headers = self.common_headers | self.config.get_headers()
 
-    # 获取CSRF token的函数
-    def get_csrf_token(self):
-        cookies = self.config.load_cookies_auth()
-        url = "https://api.v2.rainyun.com/user/csrf"
+    def auto_check_in(self, auth_list=None, force=False, match_method='template'):
+        multi = False
+        if auth_list is None:
+            auth_process = AuthProcess(self.config, self.common_headers)
+            multi = auth_process.multi
+            auth_list = auth_process.enumerate()
+        if isinstance(auth_list, AuthInfo):
+            auth_list = [auth_list]
+        if isinstance(auth_list, AuthProcess):
+            multi = auth_list.multi
+            auth_list = auth_list.enumerate()
 
-        try:
-            response = requests.get(url, headers=self.config.load_header_auth(self.common_headers), cookies=cookies,
-                                    timeout=10)
-            cookies = self.config.update_cookies_from_response(response, cookies)
+        if not isinstance(auth_list, list):
+            return {'error': '未提供认证信息。'}
 
-            if response.status_code != 200:
-                try:
-                    return {
-                        "error": f"获取 CSRF 令牌 {response.status_code} 错误：{json.dumps(response.json(), ensure_ascii=False)}"
-                    }, cookies
-                except json.decoder.JSONDecodeError:
-                    response.raise_for_status()
+        results = []
 
-            result = response.json()
+        for auth_info in auth_list:
+            if not isinstance(auth_info, AuthInfo):
+                results.append({'error': '认证信息不正确。'})
+                continue
 
-            if 'data' in result and isinstance(result['data'], str):
-                return result.get('data'), cookies
+            if auth_info.error:
+                results.append(auth_info.error)
+                continue
 
-            return {
-                "error": "获取 CSRF 令牌错误：返回内容未包含 CSRF：" + json.dumps(result, ensure_ascii=False)
-            }, cookies
-        except (requests.exceptions.HTTPError, requests.exceptions.RequestException, json.decoder.JSONDecodeError) as e:
-            return {"error": f"获取 CSRF 令牌错误：{str(e)}"}, cookies
+            name_prefix = f"{auth_info.name} " if multi else ''
+
+            if not force:
+                if get_check_in_status(auth_info).get('check_in'):
+                    results.append({'error': f"{name_prefix}今日已经签到。"})
+                    continue
+
+            verify = {"error": f"{name_prefix}自动签到未知错误。"}
+            try:
+                verify = self.complete_captcha(match_method=match_method)
+            except Exception as e:
+                verify['error'] = name_prefix + str(e)
+            if "error" in verify:
+                results.append({'error': name_prefix + verify['error']})
+                continue
+
+            result = check_in({
+                "task_name": "每日签到",
+                "verifyCode": "",
+                "vticket": verify['ticket'],
+                "vrandstr": verify['randstr']
+            }, auth_info)
+
+            if multi:
+                result['name'] = auth_info.name
+
+            results.append(result)
+
+        return results if multi else results[0]
 
     def check_in(self, data):
-        if not isinstance(data, dict):
-            return {'error': '未提供数据。'}
+        auth_process = AuthProcess(self.config, self.common_headers)
+        multi = auth_process.multi
+        if multi:
+            if not isinstance(data, list):
+                return {"error": "当前配置了多个凭据，验证码数据必须为对应数量的列表。"}
+            elif not len(data) == len(auth_process.auth_list):
+                return {"error": "验证码数据必须为对应凭据数量的列表。"}
+            data_list = data
+        else:
+            data_list = data if isinstance(data, list) else [data]
+        results = []
+        for i, auth_info in enumerate(auth_process.enumerate()):
+            data = data_list[i]
+            result = check_in(data, auth_info)
+            if multi:
+                result['name'] = auth_info.name
+            results.append(result)
 
-        data = {
-            "task_name": "每日签到",
-            "verifyCode": "",
-            "vticket": data.get('ticket', None) or data.get('vticket', None),
-            "vrandstr": data.get('randstr', None) or data.get('vrandstr', None)
-        }
-
-        # 获取CSRF token并更新cookies
-        csrf_token, cookies = self.get_csrf_token()
-        if not isinstance(csrf_token, str):
-            return csrf_token
-
-        # 准备请求头
-        headers = self.config.load_header_auth(self.common_headers)
-        headers.update({
-            "content-type": "application/json",
-            "x-csrf-token": csrf_token
-        })
-
-        try:
-            # 转发请求到目标API
-            response = requests.post(
-                "https://api.v2.rainyun.com/user/reward/tasks",
-                headers=headers,
-                cookies=cookies,
-                json=data,
-                timeout=10
-            )
-
-            # 更新cookie
-            self.config.update_cookies_from_response(response, cookies)
-
-            # 返回API的响应
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            return {'error': str(e)}
-
-    def auto_check_in(self, force=False, match_method='template'):
-        if not force:
-            if self.get_check_in_status().get('check_in'):
-                return {'error': '今日已经签到。'}
-        verify = self.complete_captcha(match_method=match_method)
-        if verify.get('error', None):
-            return {'error': verify['error']}
-
-        return self.check_in({
-            "task_name": "每日签到",
-            "verifyCode": "",
-            "vticket": verify['ticket'],
-            "vrandstr": verify['randstr']
-        })
+        return results if multi else results[0]
 
     def get_check_in_status(self):
-        # 获取CSRF token并更新cookies
-        csrf_token, cookies = self.get_csrf_token()
-        if not isinstance(csrf_token, str):
-            return csrf_token
+        auth_process = AuthProcess(self.config, self.common_headers)
+        multi = auth_process.multi
 
-        # 准备请求头
-        headers = self.config.load_header_auth(self.common_headers)
-        headers.update({
-            "x-csrf-token": csrf_token
-        })
+        results = []
+        for i, auth_info in enumerate(auth_process.enumerate()):
+            result = get_check_in_status(auth_info)
+            if multi:
+                result['name'] = auth_info.name
+            results.append(result)
 
-        try:
-            # 获取任务列表
-            response = requests.get(
-                "https://api.v2.rainyun.com/user/reward/tasks",
-                headers=headers,
-                cookies=cookies,
-                timeout=10
-            )
-
-            # 更新cookie
-            self.config.update_cookies_from_response(response, cookies)
-
-            if response.status_code == 200:
-                data = response.json()
-                tasks = data.get('data', [])
-                for task in tasks:
-                    if task.get('Name') == '每日签到' and task.get('Status') == 2:
-                        return {'check_in': True}
-                return {'check_in': False}
-
-            data = None
-            try:
-                data = response.json()
-            except JSONDecodeError:
-                pass
-
-            return {
-                'error': f"无法检测签到状态{(': ' + json.dumps(data, ensure_ascii=False)) if data else '。'}",
-                'code': response.status_code
-            }
-        except requests.exceptions.RequestException as e:
-            return {'error': str(e)}
+        return results if multi else results[0]
 
     def get_captcha_data(self):
         """获取验证码数据"""
@@ -262,7 +298,7 @@ class MainLogic:
 
             # 解析JSON数据
             json_str = response.text.strip()[1:-1]  # 移除括号
-            data = json.loads(json_str)
+            data = json_parse(json_str)
 
             return data
         except Exception as e:
@@ -341,7 +377,7 @@ class MainLogic:
             'tlg': str(len(collect)),
             'eks': eks,
             'sess': data.get('sess'),
-            'ans': json.dumps(ans),
+            'ans': json_stringify(ans),
             'pow_answer': pow_answer,
             'pow_calc_time': str(pow_calc_time)
         }
@@ -376,6 +412,6 @@ class MainLogic:
 
                     bg_img, sprite_img = self.get_captcha_images(data)
                 else:
-                    return {'error': f"超出重试次数。最后认证结果: {json.dumps(result, ensure_ascii=False)}"}
+                    return {'error': f"超出重试次数。最后认证结果: {json_stringify(result)}"}
 
         return {'error': "超出重试次数。"}

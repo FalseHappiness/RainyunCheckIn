@@ -1,6 +1,5 @@
 import base64
 import binascii
-import json
 import re
 import sys
 from pathlib import Path
@@ -22,7 +21,7 @@ if __name__ == '__main__':
     config_path = str(project_root / "config.json")
 
 from src.ICR import find_part_positions, main as icr_main
-from src.utils import get_base_path
+from src.utils import get_base_path, json_parse
 from src.version import PROGRAM_VERSION
 
 from src.main import MainLogic
@@ -44,7 +43,7 @@ app = FastAPI(
 # 访问 /docs 时跳转到第三方页面
 @app.get("/docs", include_in_schema=False)
 async def redirect_to_external_docs():
-    return RedirectResponse("https://rainyun-check-in.apifox.cn/1_5_0", status_code=301)
+    return RedirectResponse("https://rainyun-check-in.apifox.cn/latest", status_code=301)
 
 
 # 忽略警告
@@ -77,16 +76,6 @@ async def custom_http_exception_handler(_: Request, exc: HTTPException):
 async def serve_html():
     static_dir = Path(get_base_path()) / 'static'
     return FileResponse(static_dir / "index.html")
-
-
-def json_parse(json_str, else_none=True):
-    data = None if else_none else json_str
-    try:
-        if isinstance(json_str, str):
-            data = json.loads(json_str)
-    except json.JSONDecodeError:
-        pass
-    return data
 
 
 # 通用参数解析器
@@ -126,12 +115,6 @@ async def parse_api_config(request: Request, params: Optional[dict] = None, no_n
     data = {}
 
     if not no_need_auth:
-        params_auth = params.get('auth', None)
-        if params_auth is not None:
-            if not isinstance(params_auth, dict):
-                raise_error("参数错误：auth 必须是对象")
-            data['auth'] = params_auth
-
         auth = {}
         x_api_key = params.get('x_api_key', None) or params.get('x-api-key', None)
         if x_api_key is not None:
@@ -150,9 +133,15 @@ async def parse_api_config(request: Request, params: Optional[dict] = None, no_n
         if auth:
             data['auth'] = auth
 
+        params_auth = params.get('auth', None)
+        if params_auth is not None:
+            if not isinstance(params_auth, (dict, list)):
+                raise_error("参数错误：auth 必须是对象或数组")
+            data['auth'] = params_auth
+
     params_headers = params.get('headers', None)
     if params_headers is not None:
-        if not isinstance(params_headers, dict) and not isinstance(params_headers, list):
+        if not isinstance(params_headers, (dict, list)):
             raise_error("参数错误：headers 必须是对象或数组")
         data['headers'] = params_headers
 
@@ -183,13 +172,12 @@ async def parse_na_main(request: Request):
 
 
 # 签到路由
-
 @app.api_route('/check_in', methods=['GET', 'POST'])
 async def handle_check_in(params=Depends(parse_params), main=Depends(parse_main_logic)):
     """
     签到接口
     """
-    return main.check_in(params)
+    return main.check_in(params.get('captcha'))
 
 
 def bool_value(value):
@@ -202,7 +190,10 @@ async def handle_auto_check_in(params=Depends(parse_params), main=Depends(parse_
     """
     自动签到接口
     """
-    return main.auto_check_in(bool_value(params.get("force", "")), params.get('method', 'template'))
+    return main.auto_check_in(
+        force=bool_value(params.get("force", "")),
+        match_method=params.get('method', 'template')
+    )
 
 
 # 检查签到状态路由

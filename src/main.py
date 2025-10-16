@@ -134,6 +134,19 @@ def get_check_in_status(auth_info):
         return {'error': str(e)}
 
 
+def multi_return(results, multi):
+    if isinstance(results, dict):
+        return results
+
+    if not isinstance(results, list):
+        return {"error": "没有数据"}
+
+    if multi:
+        return {"data": results}
+    else:
+        return {"error": "没有数据"} if len(results) == 0 else results[0]
+
+
 class MainLogic:
     def __init__(self, config_path='config.json', config_data=None, no_need_auth=False):
         # 公共请求头
@@ -223,7 +236,7 @@ class MainLogic:
 
             results.append(result)
 
-        return results if multi else results[0]
+        return multi_return(results, multi)
 
     def check_in(self, data):
         auth_process = AuthProcess(self.config, self.common_headers)
@@ -244,7 +257,7 @@ class MainLogic:
                 result['name'] = auth_info.name
             results.append(result)
 
-        return results if multi else results[0]
+        return multi_return(results, multi)
 
     def get_check_in_status(self):
         auth_process = AuthProcess(self.config, self.common_headers)
@@ -257,7 +270,7 @@ class MainLogic:
                 result['name'] = auth_info.name
             results.append(result)
 
-        return results if multi else results[0]
+        return multi_return(results, multi)
 
     def get_captcha_data(self):
         """获取验证码数据"""
